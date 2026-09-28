@@ -152,7 +152,9 @@ app.include_router(reviews.router)
 app.include_router(carrier_portal.router)
 app.include_router(delivery_personnel_portal.router)
 
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
+
+dist_index = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist", "index.html")
 
 @app.get("/docs", include_in_schema=False)
 def redirect_docs():
@@ -162,10 +164,26 @@ def redirect_docs():
 def redirect_openapi():
     return RedirectResponse(url="/api/openapi.json")
 
+@app.get("/index.html", include_in_schema=False)
+def serve_index():
+    if os.path.exists(dist_index):
+        return FileResponse(dist_index, media_type="text/html")
+    return {"status": "online", "app": "RetailSphere AI Backend"}
+
 @app.get("/")
+def read_root():
+    if os.path.exists(dist_index):
+        return FileResponse(dist_index, media_type="text/html")
+    return {
+        "status": "online",
+        "app": "RetailSphere AI Backend",
+        "docs": "/api/docs",
+        "openapi": "/api/openapi.json"
+    }
+
 @app.get("/api")
 @app.get("/api/")
-def read_root():
+def read_api_root():
     return {
         "status": "online",
         "app": "RetailSphere AI Backend",
