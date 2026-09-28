@@ -153,8 +153,12 @@ app.include_router(carrier_portal.router)
 app.include_router(delivery_personnel_portal.router)
 
 from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 dist_index = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist", "index.html")
+dist_assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist", "assets")
+if os.path.exists(dist_assets_dir):
+    app.mount("/assets", StaticFiles(directory=dist_assets_dir), name="frontend_assets")
 
 @app.get("/docs", include_in_schema=False)
 def redirect_docs():
