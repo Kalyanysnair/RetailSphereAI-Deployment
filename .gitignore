@@ -4,16 +4,30 @@ frontend/node_modules/
 
 # Python Cache & Virtual Environments
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 .pytest_cache/
 env/
 venv/
+.venv/
+backend/.pytest_cache/
+backend/__pycache__/
+backend/*/__pycache__/
+backend/*/*/__pycache__/
 
-# Environment Variables
+# Environment Variables & Sensitive Files (Explicitly excluded)
 .env
-.env.local
+.env.*
+!.env.example
+*.env
+backend/.env
+frontend/.env
+
+# Local Database Dumps & Scratch Files
+*.db
+*.sqlite3
+*.xlsx
+scratch/
 
 # Build Outputs
 dist/
@@ -24,3 +38,4 @@ frontend/dist/
 .DS_Store
 .vscode/
 .idea/
+Thumbs.db
