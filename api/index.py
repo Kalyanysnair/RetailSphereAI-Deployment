@@ -19,15 +19,16 @@ class VercelPathFixMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            for name, value in scope.get("headers", []):
-                if name.lower() == b"x-matched-path":
+            headers = dict(scope.get("headers", []))
+            for key in [b"x-matched-path", b"x-forwarded-uri", b"x-original-url", b"x-rewrite-url"]:
+                if key in headers:
                     try:
-                        matched_path = value.decode("utf-8").split("?")[0]
-                        if matched_path and matched_path != scope.get("path"):
-                            scope["path"] = matched_path
+                        raw_val = headers[key].decode("utf-8").split("?")[0]
+                        if raw_val and not raw_val.endswith("index.py") and raw_val != scope.get("path"):
+                            scope["path"] = raw_val
+                            break
                     except Exception:
                         pass
-                    break
         await self.asgi_app(scope, receive, send)
 
 app = VercelPathFixMiddleware(base_app)
