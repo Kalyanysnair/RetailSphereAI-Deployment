@@ -8,7 +8,10 @@ from app.routers import auth, admin, production, coupons
 app = FastAPI(
     title="RetailSphere AI Backend",
     description="FastAPI Backend for RetailSphere AI E-Commerce & Custom Furniture Platform",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    redoc_url="/api/redoc"
 )
 
 # CORS configuration to allow frontend access from all local ports and origins
@@ -149,10 +152,23 @@ app.include_router(reviews.router)
 app.include_router(carrier_portal.router)
 app.include_router(delivery_personnel_portal.router)
 
+from fastapi.responses import RedirectResponse
+
+@app.get("/docs", include_in_schema=False)
+def redirect_docs():
+    return RedirectResponse(url="/api/docs")
+
+@app.get("/openapi.json", include_in_schema=False)
+def redirect_openapi():
+    return RedirectResponse(url="/api/openapi.json")
+
 @app.get("/")
+@app.get("/api")
+@app.get("/api/")
 def read_root():
     return {
         "status": "online",
         "app": "RetailSphere AI Backend",
-        "docs": "/docs"
+        "docs": "/api/docs",
+        "openapi": "/api/openapi.json"
     }
