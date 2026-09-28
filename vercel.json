@@ -11,7 +11,7 @@
       "destination": "/api/index.py"
     },
     {
-      "source": "/((?!api/|uploads/|assets/|favicon\\.svg|.*\\..*).*)",
+      "source": "/((?!api/|uploads/|assets/|favicon\\.svg|retailsphere_logo\\.jpg|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]

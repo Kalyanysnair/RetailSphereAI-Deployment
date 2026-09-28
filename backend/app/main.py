@@ -152,13 +152,29 @@ app.include_router(reviews.router)
 app.include_router(carrier_portal.router)
 app.include_router(delivery_personnel_portal.router)
 
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.responses import RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-dist_index = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist", "index.html")
-dist_assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist", "assets")
+dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist")
+dist_index = os.path.join(dist_dir, "index.html")
+dist_assets_dir = os.path.join(dist_dir, "assets")
+
 if os.path.exists(dist_assets_dir):
     app.mount("/assets", StaticFiles(directory=dist_assets_dir), name="frontend_assets")
+
+@app.get("/favicon.svg", include_in_schema=False)
+def serve_favicon():
+    favicon_path = os.path.join(dist_dir, "favicon.svg")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path, media_type="image/svg+xml")
+    return Response(status_code=404)
+
+@app.get("/retailsphere_logo.jpg", include_in_schema=False)
+def serve_logo():
+    logo_path = os.path.join(dist_dir, "retailsphere_logo.jpg")
+    if os.path.exists(logo_path):
+        return FileResponse(logo_path, media_type="image/jpeg")
+    return Response(status_code=404)
 
 @app.get("/docs", include_in_schema=False)
 def redirect_docs():
