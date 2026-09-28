@@ -27,6 +27,9 @@ frontend/.env
 *.db
 *.sqlite3
 *.xlsx
+*.dump
+*.sql
+backups/
 scratch/
 
 # Build Outputs

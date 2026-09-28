@@ -1,25 +1,20 @@
-const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
-export const API_BASE_URL = `http://${API_HOST}:8000`;
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 async function safeFetchCoupons(path: string, options?: RequestInit): Promise<Response> {
-  const primaryHost = API_HOST;
-  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const base = import.meta.env.VITE_API_BASE_URL || '';
+  const url = `${base}/api/coupons${cleanPath}`;
 
-  const urls = [
-    `http://${primaryHost}:8000/api/coupons${cleanPath}`,
-    `http://${secondaryHost}:8000/api/coupons${cleanPath}`
-  ];
-
-  let lastErr: any = null;
-  for (const u of urls) {
+  try {
+    return await fetch(url, options);
+  } catch (relativeErr) {
+    const directUrl = `http://127.0.0.1:8000/api/coupons${cleanPath}`;
     try {
-      return await fetch(u, options);
-    } catch (err) {
-      lastErr = err;
+      return await fetch(directUrl, options);
+    } catch (directErr) {
+      throw directErr || relativeErr;
     }
   }
-  throw lastErr || new TypeError('Failed to fetch coupon service');
 }
 
 export interface Coupon {

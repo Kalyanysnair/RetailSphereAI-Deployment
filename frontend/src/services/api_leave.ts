@@ -1,5 +1,4 @@
-const API_HOST = window.location.hostname || 'localhost';
-export const API_BASE_URL = `http://${API_HOST}:8000`;
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export interface WorkerLeaveItem {
   leave_id: number;

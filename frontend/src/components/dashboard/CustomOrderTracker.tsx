@@ -623,9 +623,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
       try {
         const storedUser = localStorage.getItem('user');
         const userObj = storedUser ? JSON.parse(storedUser) : null;
-        const endpoint = window.location.port === '3000' 
-          ? 'http://localhost:8000/api/auth/contact' 
-          : '/api/auth/contact';
+        const endpoint = `${import.meta.env.VITE_API_BASE_URL || ''}/api/auth/contact`;
 
         await fetch(endpoint, {
           method: 'POST',

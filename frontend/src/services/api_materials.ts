@@ -1,5 +1,4 @@
-const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
-const BASE_URL = `http://${API_HOST}:8000/api/materials`;
+const BASE_URL = `${import.meta.env.VITE_API_BASE_URL || ''}/api/materials`;
 
 export interface RawMaterialItem {
   material_id: number;

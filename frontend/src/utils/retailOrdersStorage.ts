@@ -33,28 +33,23 @@ export interface RetailOrder {
   items: RetailOrderItem[];
 }
 
-const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
-const BASE_URL = `http://${API_HOST}:8000/api`;
+const BASE_URL = `${import.meta.env.VITE_API_BASE_URL || ''}/api`;
 
 async function safeFetchOrders(path: string, options?: RequestInit): Promise<Response> {
-  const primaryHost = API_HOST;
-  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const base = import.meta.env.VITE_API_BASE_URL || '';
+  const url = `${base}/api${cleanPath}`;
 
-  const urls = [
-    `http://${primaryHost}:8000/api${cleanPath}`,
-    `http://${secondaryHost}:8000/api${cleanPath}`
-  ];
-
-  let lastErr: any = null;
-  for (const u of urls) {
+  try {
+    return await fetch(url, options);
+  } catch (relativeErr) {
+    const directUrl = `http://127.0.0.1:8000/api${cleanPath}`;
     try {
-      return await fetch(u, options);
-    } catch (err) {
-      lastErr = err;
+      return await fetch(directUrl, options);
+    } catch (directErr) {
+      throw directErr || relativeErr;
     }
   }
-  throw lastErr || new TypeError('Failed to fetch order service');
 }
 
 const STORAGE_KEY = 'retail_orders_list';

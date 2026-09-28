@@ -1,5 +1,4 @@
-const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
-export const API_BASE_URL = `http://${API_HOST}:8000`;
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('access_token') || localStorage.getItem('token');

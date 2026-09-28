@@ -1,5 +1,4 @@
-const API_HOST = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-const BASE_URL = `/api`;
+const BASE_URL = `${import.meta.env.VITE_API_BASE_URL || ''}/api`;
 
 async function safeFetch(urlPath: string, options?: RequestInit): Promise<Response> {
   const cleanPath = urlPath.startsWith('/') ? urlPath : `/${urlPath}`;

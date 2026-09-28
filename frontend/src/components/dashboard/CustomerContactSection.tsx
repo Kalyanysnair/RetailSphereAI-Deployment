@@ -117,9 +117,7 @@ export const CustomerContactSection: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const endpoint = window.location.port === '3000'
-        ? 'http://localhost:8000/api/auth/contact'
-        : '/api/auth/contact';
+      const endpoint = `${import.meta.env.VITE_API_BASE_URL || ''}/api/auth/contact`;
 
       await fetch(endpoint, {
         method: 'POST',
