@@ -4,9 +4,22 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, status
 
 router = APIRouter(prefix="/api/upload", tags=["File Uploads"])
 
-# Ensure uploads directory exists
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Ensure uploads directory exists safely across local and Vercel environments
+def _get_upload_dir() -> str:
+    if os.environ.get("VERCEL"):
+        upload_path = "/tmp/retailsphere_uploads"
+    else:
+        upload_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
+    try:
+        os.makedirs(upload_path, exist_ok=True)
+    except OSError:
+        import tempfile
+        upload_path = os.path.join(tempfile.gettempdir(), "retailsphere_uploads")
+        os.makedirs(upload_path, exist_ok=True)
+    return upload_path
+
+UPLOAD_DIR = _get_upload_dir()
+
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_file(file: UploadFile = File(...)):

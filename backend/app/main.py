@@ -112,9 +112,21 @@ import os
 from fastapi.staticfiles import StaticFiles
 from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff, fleet, worker_ops, reviews, carrier_portal, delivery_personnel_portal
 
-# Mount static uploads directory
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Mount static uploads directory safely across local and Vercel environments
+def _get_upload_dir() -> str:
+    if os.environ.get("VERCEL"):
+        upload_path = "/tmp/retailsphere_uploads"
+    else:
+        upload_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+    try:
+        os.makedirs(upload_path, exist_ok=True)
+    except OSError:
+        import tempfile
+        upload_path = os.path.join(tempfile.gettempdir(), "retailsphere_uploads")
+        os.makedirs(upload_path, exist_ok=True)
+    return upload_path
+
+UPLOAD_DIR = _get_upload_dir()
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Include routers
