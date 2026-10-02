@@ -102,3 +102,23 @@ def add_machine_maintenance(machine_id: int, payload: MachineMaintenancePayload,
     db.commit()
 
     return {"message": f"Maintenance record logged for Machine #{machine_id}"}
+
+
+@router.get("/maintenance/all")
+def get_all_machines_maintenance_logs(db: Session = Depends(get_db)):
+    logs = db.query(models.MachineMaintenance).order_by(models.MachineMaintenance.serviced_date.desc()).all()
+    results = []
+    for l in logs:
+        m = l.machine
+        results.append({
+            "maintenance_id": l.maintenance_id,
+            "machine_id": l.machine_id,
+            "machine_name": m.machine_name if m else f"Machine #{l.machine_id}",
+            "machine_category": m.category if m else "Equipment",
+            "description": l.description,
+            "performed_by": l.performed_by,
+            "maintenance_type": l.maintenance_type,
+            "serviced_date": l.serviced_date.isoformat() if l.serviced_date else None
+        })
+    return results
+

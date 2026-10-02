@@ -179,6 +179,22 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   // 1. Dashboard Overview State
   const [overviewData, setOverviewData] = useState<ProductionOverviewData | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [hoveredSidebarTooltip, setHoveredSidebarTooltip] = useState<{ label: string; top: number; left: number } | null>(null);
+
+  const handleSidebarItemMouseEnter = (e: React.MouseEvent<HTMLElement>, label: string) => {
+    if (isSidebarCollapsed) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setHoveredSidebarTooltip({
+        label,
+        top: rect.top + rect.height / 2,
+        left: rect.right + 12,
+      });
+    }
+  };
+
+  const handleSidebarItemMouseLeave = () => {
+    setHoveredSidebarTooltip(null);
+  };
 
   // 2. Assessment Queue State
   const [assessmentQueue, setAssessmentQueue] = useState<AssessmentQueueItem[]>([]);
@@ -1615,6 +1631,25 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   return (
     <div className="relative min-h-screen text-[#2C2016] flex selection:bg-[#38A132] selection:text-white overflow-x-hidden admin-theme">
+      {/* Floating Tooltip for Collapsed Sidebar */}
+      {isSidebarCollapsed && hoveredSidebarTooltip && (
+        <div
+          style={{
+            top: `${hoveredSidebarTooltip.top}px`,
+            left: `${hoveredSidebarTooltip.left}px`,
+            transform: 'translateY(-50%)',
+          }}
+          className="fixed z-[9999] pointer-events-none flex items-center transition-opacity duration-150 animate-in fade-in zoom-in-95"
+        >
+          {/* Caret Indicator */}
+          <div className="w-0 h-0 border-y-[5px] border-y-transparent border-r-[6px] border-r-[#2C2016] -mr-[1px]" />
+          {/* Tooltip Label Badge */}
+          <div className="px-3 py-1.5 bg-[#2C2016]/95 backdrop-blur-md text-[#FAF5ED] text-xs font-bold rounded-xl shadow-[0_8px_30px_rgba(44,32,22,0.4)] border border-[#5A4533] whitespace-nowrap tracking-wide flex items-center gap-1.5">
+            <span>{hoveredSidebarTooltip.label}</span>
+          </div>
+        </div>
+      )}
+
       {/* Background Ambience Layer */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-[#C6A680]/35 rounded-full blur-[128px]" />
@@ -1629,9 +1664,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         <div className="pb-2.5 border-b border-[#DFD2C0]/80 overflow-hidden">
           <button
             type="button"
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            onClick={() => {
+              setIsSidebarCollapsed(!isSidebarCollapsed);
+              setHoveredSidebarTooltip(null);
+            }}
+            onMouseEnter={(e) => handleSidebarItemMouseEnter(e, isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar')}
+            onMouseLeave={handleSidebarItemMouseLeave}
             className="flex items-center gap-2 group cursor-pointer text-left w-full p-1 rounded-xl hover:bg-[#E5D7C5]/60 transition-colors duration-200"
-            title={isSidebarCollapsed ? "Click to expand sidebar" : "Click to collapse sidebar"}
+            title={!isSidebarCollapsed ? "Click to collapse sidebar" : undefined}
           >
             <div className="relative flex-shrink-0">
               <img
@@ -1682,8 +1722,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
@@ -1727,8 +1772,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
@@ -1773,8 +1823,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
@@ -1820,8 +1875,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'

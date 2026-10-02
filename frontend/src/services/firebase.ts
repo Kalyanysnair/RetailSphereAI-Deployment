@@ -1,20 +1,14 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, UserCredential } from 'firebase/auth';
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider, signInWithPopup, type UserCredential, type Auth } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDummyApiKeyForLocalDevAuth123456',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'retailsphere-app.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'retailsphere-app',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'retailsphere-app.appspot.com',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '1088492040989',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:1088492040989:web:abcdef1234567890',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
 };
-
-// Initialize Firebase App singleton
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export interface FirebaseGoogleUser {
   email: string;
@@ -24,8 +18,51 @@ export interface FirebaseGoogleUser {
   idToken: string;
 }
 
+export function isFirebaseConfigured(): boolean {
+  return Boolean(
+    firebaseConfig.apiKey &&
+    firebaseConfig.apiKey.trim().length > 0 &&
+    !firebaseConfig.apiKey.includes('Dummy') &&
+    firebaseConfig.authDomain &&
+    firebaseConfig.projectId
+  );
+}
+
+let appInstance: FirebaseApp | null = null;
+let authInstance: Auth | null = null;
+let googleProviderInstance: GoogleAuthProvider | null = null;
+
+export function getFirebaseAuth(): Auth {
+  if (!isFirebaseConfigured()) {
+    throw new Error('Google Sign-In is not configured. Please ensure Firebase environment variables (VITE_FIREBASE_API_KEY, etc.) are set in Vercel.');
+  }
+
+  if (!appInstance) {
+    appInstance = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  }
+  if (!authInstance) {
+    authInstance = getAuth(appInstance);
+  }
+  return authInstance;
+}
+
+export function getGoogleProvider(): GoogleAuthProvider {
+  if (!googleProviderInstance) {
+    googleProviderInstance = new GoogleAuthProvider();
+    googleProviderInstance.setCustomParameters({ prompt: 'select_account' });
+  }
+  return googleProviderInstance;
+}
+
 export async function signInWithGoogleFirebase(): Promise<FirebaseGoogleUser> {
-  const result: UserCredential = await signInWithPopup(auth, googleProvider);
+  if (!isFirebaseConfigured()) {
+    throw new Error('Google Sign-In is not configured. Please ensure Firebase environment variables (VITE_FIREBASE_API_KEY, etc.) are set in Vercel.');
+  }
+
+  const auth = getFirebaseAuth();
+  const provider = getGoogleProvider();
+
+  const result: UserCredential = await signInWithPopup(auth, provider);
   const user = result.user;
   const idToken = await user.getIdToken();
 

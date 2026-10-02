@@ -1,12 +1,14 @@
 import math
 import random
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from jose import JWTError, jwt
 
 from app.database import get_db
+from app.config import settings
 from app import models, auth
 
 router = APIRouter(prefix="/api/ai", tags=["AI & Intelligent Manufacturing Suite"])
@@ -55,8 +57,13 @@ class CuttingOptimizeRequest(BaseModel):
     sheet_height: float = 1220.0
     items: List[CuttingItem]
 
+class ChatMessageItem(BaseModel):
+    sender: str
+    text: str
+
 class CustomerAssistantRequest(BaseModel):
     message: str
+    history: Optional[List[ChatMessageItem]] = []
     context: Optional[Dict[str, Any]] = None
 
 class StaffAssistantRequest(BaseModel):
@@ -392,32 +399,834 @@ def optimize_cutting(req: CuttingOptimizeRequest, db: Session = Depends(get_db))
     log_ai_execution(db, "cutting_optimization", f"Sheet {sheet_w}x{sheet_h}, Items: {len(req.items)}", str(result))
     return result
 
-# 12. Context-Aware AI Chatbots
+# Helper to optionally authenticate customer for context-aware queries
+def get_optional_user(authorization: Optional[str], db: Session) -> Optional[models.User]:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ")[1].strip()
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id_str: str = payload.get("sub")
+        if user_id_str is None:
+            return None
+        user_id = int(user_id_str)
+    except Exception:
+        return None
+
+# 12. Domain-Specific AI Customer Assistant for RetailSphere AI
 @router.post("/customer-assistant")
-def customer_ai_assistant(req: CustomerAssistantRequest, db: Session = Depends(get_db)):
+def customer_ai_assistant(
+    req: CustomerAssistantRequest,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
     msg = req.message.strip()
     msg_lower = msg.lower()
     
+    # 1. Multi-Turn Context & Entity Tracking from History
+    history = req.history or []
+    prev_user_msgs = [h.text.lower() for h in history if h.sender == "user"]
+    prev_bot_msgs = [h.text.lower() for h in history if h.sender == "bot"]
+    last_user_msg = prev_user_msgs[-1] if prev_user_msgs else ""
+    last_bot_msg = prev_bot_msgs[-1] if prev_bot_msgs else ""
+    full_conversation_text = " ".join(prev_user_msgs + prev_bot_msgs + [msg_lower])
+
+    # Detect active furniture entity from history or current message
+    active_item = None
+    if "wardrobe" in full_conversation_text or "closet" in full_conversation_text:
+        active_item = "wardrobe"
+    elif "sofa" in full_conversation_text or "couch" in full_conversation_text:
+        active_item = "sofa"
+    elif "dining table" in full_conversation_text or "dining" in full_conversation_text:
+        active_item = "dining table"
+    elif "table" in full_conversation_text or "desk" in full_conversation_text:
+        active_item = "table"
+    elif "bed" in full_conversation_text or "bedroom" in full_conversation_text:
+        active_item = "bed"
+    elif "chair" in full_conversation_text:
+        active_item = "chair"
+    elif "cabinet" in full_conversation_text or "shelf" in full_conversation_text:
+        active_item = "cabinet"
+
+    # Context topic tracking from recent history
+    context_topic = None
+    if any(k in last_user_msg or k in last_bot_msg for k in ["custom", "bespoke", "create", "tailor", "customize", "customise"]):
+        context_topic = "CUSTOM"
+    elif any(k in last_user_msg or k in last_bot_msg for k in ["fabricat", "cnc", "cutting", "sheet", "timber cut"]):
+        context_topic = "FABRICATION"
+    elif any(k in last_user_msg or k in last_bot_msg for k in ["service", "carpenter", "artisan", "upholstery", "assembly", "repair", "polishing"]):
+        context_topic = "ON_SITE"
+    elif any(k in last_user_msg or k in last_bot_msg for k in ["delivery", "shipping", "carrier", "transport", "freight"]):
+        context_topic = "DELIVERY"
+    elif any(k in last_user_msg or k in last_bot_msg for k in ["wood", "timber", "material", "teak", "log"]):
+        context_topic = "MATERIAL"
+
+    # Current authenticated customer (if available)
+    current_user = get_optional_user(authorization, db)
+    customer_record = current_user.customer_profile if current_user else None
+
     reply = ""
     suggestions: List[str] = []
     recommended_products: List[Dict[str, Any]] = []
     action_tab: Optional[str] = None
 
-    # 1. Product Catalog Search & Furniture Recommendations
-    furniture_keywords = ["table", "sofa", "chair", "bed", "desk", "dining", "wardrobe", "cabinet", "shelf", "couch", "furniture", "catalog", "shop", "buy", "product", "price", "cost", "teak", "wood"]
-    matched_keyword = next((kw for kw in furniture_keywords if kw in msg_lower), None)
+    # =========================================================================
+    # INTENT 1: INTERNAL SECURITY & ARCHITECTURE BOUNDARIES (Strict Guardrail)
+    # =========================================================================
+    internal_tech_terms = [
+        "database", "postgres", "postgresql", "mysql", "sqlite", "sql", "api", "endpoint",
+        "backend", "frontend", "fastapi", "react", "typescript", "sqlalchemy", "jwt",
+        "router", "schema", "table name", "source code", "admin panel", "role id",
+        "two types of staff", "staff role", "production staff role", "retail staff role",
+        "worker station", "database structure", "internal architecture", "show me the database"
+    ]
+    if any(term in msg_lower for term in internal_tech_terms):
+        reply = (
+            "🔒 **RetailSphere AI System Notice**\n\n"
+            "I can help with RetailSphere AI's furniture, customization, fabrication, on-site services, orders, quotations, and delivery, but I cannot provide internal system or architecture information."
+        )
+        suggestions = [
+            "Explore Ready-Made Furniture",
+            "Design Custom Furniture",
+            "Book On-Site Carpenter",
+            "Timber Fabrication Options"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": None
+        }
 
-    if any(q in msg_lower for q in ["show", "recommend", "looking for", "find", "buy", "search", "what products", "list", "sofa", "table", "chair", "bed", "wardrobe", "desk"]):
-        # Query matching products from DB
-        query = db.query(models.Product).filter(models.Product.stock_quantity > 0)
-        if matched_keyword and matched_keyword not in ["furniture", "product", "shop", "buy"]:
-            query = query.filter(
-                (models.Product.product_name.ilike(f"%{matched_keyword}%")) |
-                (models.Product.material.ilike(f"%{matched_keyword}%")) |
-                (models.Product.description.ilike(f"%{matched_keyword}%"))
+    # =========================================================================
+    # INTENT 2: OUT-OF-DOMAIN STRICT REDIRECTION
+    # =========================================================================
+    out_of_domain_triggers = [
+        "timer", "alarm", "weather", "temperature", "forecast", "homework", "math",
+        "solve", "python", "javascript", "java", "c++", "coding", "code", "cricket",
+        "football", "match", "score", "president", "prime minister", "politics",
+        "election", "joke", "funny", "tell me a joke", "essay", "space", "planet",
+        "translate", "recipe", "crypto", "bitcoin", "stock market", "nasdaq"
+    ]
+    if any(ot in msg_lower for ot in out_of_domain_triggers) and not any(ft in msg_lower for ft in ["wood", "furniture", "timber", "sofa", "table", "chair", "bed", "wardrobe"]):
+        reply = (
+            "I'm the **RetailSphere AI customer assistant**, so I can help with our furniture, customization, fabrication, on-site services, orders, quotations, and delivery. If you have a furniture-related question, I'd be happy to help."
+        )
+        suggestions = [
+            "Browse Furniture Catalog",
+            "Design Custom Furniture",
+            "Precision Wood Fabrication",
+            "Book On-Site Carpenter"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": None
+        }
+
+    # =========================================================================
+    # INTENT 3: GREETINGS & GENERAL INTRODUCTIONS
+    # =========================================================================
+    if any(msg_lower == g or msg_lower.startswith(g + " ") for g in ["hi", "hello", "hey", "good morning", "good evening", "namaste", "greetings"]) or \
+       any(q in msg_lower for q in ["who are you", "what is retailsphere", "what is retailsphere ai", "what can you do", "what do you do", "what services do you offer", "what services do you provide", "how does retailsphere work", "what can i do here"]):
+        reply = (
+            "👋 **Welcome to RetailSphere AI!**\n\n"
+            "I am your **RetailSphere AI Customer Assistant**. RetailSphere AI is an integrated furniture commerce and craftsmanship platform offering four core services:\n\n"
+            "1. 🛋️ **Ready-Made Furniture (SHOP)**:\n"
+            "   • Discover curated luxury furniture with interactive 3D/AR previews and direct checkout.\n\n"
+            "2. 📐 **Bespoke Custom Furniture (CREATE)**:\n"
+            "   • Submit your dimensions, preferred timber, and reference sketches for made-to-order furniture with formal quotations.\n\n"
+            "3. 🪚 **Precision Timber Fabrication (FABRICATE)**:\n"
+            "   • Precision wood cutting, CNC routing, 4-side planing, and 2D sheet cutting optimization for our wood or your own timber.\n\n"
+            "4. 🛠️ **On-Site Skilled Services (SERVICES)**:\n"
+            "   • Book verified master carpenters, furniture assemblers, upholstery specialists, and wood polishers at your location."
+        )
+        suggestions = [
+            "Browse Ready-Made Furniture",
+            "Design Custom Furniture",
+            "Precision Wood Fabrication",
+            "Book On-Site Carpenter",
+            "I have my own timber"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "shop"
+        }
+
+    # =========================================================================
+    # INTENT 4: AMBIGUOUS QUESTIONS HANDLING (Clarification Requests)
+    # =========================================================================
+    if msg_lower in ["how much is it?", "how much is it", "how much does it cost?", "how much does it cost", "what is the price?", "what is the price", "how much?"]:
+        if not active_item and not context_topic:
+            reply = "Could you tell me which product or service you're referring to? (A ready-made catalog item, custom bespoke furniture, timber fabrication, or an on-site service?)"
+            suggestions = [
+                "Custom Furniture Pricing",
+                "Fabrication Machining Charges",
+                "On-Site Service Rates",
+                "Ready-Made Catalog Prices"
+            ]
+            return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": None}
+
+    if msg_lower in ["can i get it delivered?", "can i get it delivered", "delivery available?", "can it be delivered?"]:
+        if not active_item and not context_topic:
+            reply = "Could you specify what you would like delivered? (A ready-made furniture order, a custom bespoke piece, or fabricated timber materials?)"
+            suggestions = [
+                "Ready-Made Furniture Delivery",
+                "Custom Furniture Delivery",
+                "Fabrication Freight Options"
+            ]
+            return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "orders"}
+
+    if msg_lower in ["can you repair it?", "can you repair it", "can you fix it?", "repair available?"]:
+        if not active_item and not context_topic:
+            reply = "Could you share what type of furniture needs repair? (e.g. wooden chair/table joinery, sofa upholstery/cushioning, or surface scratch polishing?)"
+            suggestions = [
+                "Wooden Furniture Joinery Repair",
+                "Sofa Upholstery & Cushioning",
+                "Wood Polishing & Scratch Removal"
+            ]
+            return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "services"}
+
+    if msg_lower in ["i need a service", "service", "services", "book service", "need service", "i want a service", "help me with service"]:
+        reply = (
+            "RetailSphere AI offers several specialized services. Which type of service are you looking for?\n\n"
+            "1. 📐 **Custom Furniture**: Design a bespoke piece crafted to your exact dimensions and materials.\n"
+            "2. 🪚 **Timber Fabrication**: Industrial cutting, shaping, and CNC sizing for timber and boards.\n"
+            "3. 🛠️ **On-Site Skilled Services**: Master carpenters, assembly, upholstery, or polishing at your home."
+        )
+        suggestions = [
+            "Design Custom Furniture",
+            "Precision Timber Fabrication",
+            "Book On-Site Carpenter",
+            "I have my own timber"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "services"
+        }
+
+    # =========================================================================
+    # INTENT 5: GENERAL FURNITURE DOMAIN KNOWLEDGE & SELECTION GUIDANCE
+    # =========================================================================
+    # 5A. Wood Species Knowledge (Teak, Rosewood, Mahogany, Sheesham, Oak, Walnut)
+    if any(k in msg_lower for k in ["what is teak", "teak wood", "what is rosewood", "rosewood", "what is mahogany", "mahogany", "what is sheesham", "sheesham", "which wood", "best wood", "types of wood"]):
+        reply = (
+            "🌲 **Timber & Hardwood Guide:**\n\n"
+            "• **Teak Wood (*Tectona grandis*)**: Rich in natural oils, offering exceptional resistance to moisture, termites, and warping. It is the gold standard for luxury dining tables and outdoor patio furniture.\n"
+            "• **Rosewood (*Dalbergia latifolia*)**: Ultra-dense with deep dark grain patterns, famous for heirloom durability and intricate carving.\n"
+            "• **Mahogany**: Characterized by a warm reddish-brown hue and uniform grain, renowned for dimensional stability in executive desks and dining suites.\n"
+            "• **Sheesham (Indian Rosewood)**: Tough hardwood with expressive swirling grains, popular for durable beds, tables, and cabinets.\n\n"
+            "💡 *Note*: In general, solid hardwoods offer lifetime durability. On RetailSphere AI, you can select premium solid teak, rosewood, or walnut in the **CREATE** studio, or browse ready-made pieces in our catalog."
+        )
+        suggestions = [
+            "Which wood is suitable for a dining table?",
+            "Can I provide my own teak wood?",
+            "Design Custom Furniture",
+            "Browse Ready-Made Furniture"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "create"}
+
+    # 5B. Engineered Wood, Solid Wood, Plywood, MDF
+    if any(k in msg_lower for k in ["what is plywood", "what is mdf", "what is solid wood", "solid wood vs", "mdf vs", "plywood vs", "engineered wood"]):
+        reply = (
+            "🪵 **Solid Wood vs. Engineered Timber:**\n\n"
+            "• **Solid Wood**: 100% natural lumber cut directly from tree logs. It provides natural grain beauty, supreme structural strength, and can be re-sanded or re-polished over generations.\n"
+            "• **BWP Marine Plywood (IS:710)**: Engineered cross-laminated wood veneers bonded with waterproof resin. It resists water, warping, and humidity, making it ideal for modular wardrobes, kitchen cabinets, and storage units.\n"
+            "• **MDF (Medium-Density Fibreboard)**: Smooth engineered board made from compressed wood fibers. It offers a very uniform surface for CNC 3D routing and painted finishes, but should be kept away from excessive moisture.\n\n"
+            "💡 *On RetailSphere AI*: We use solid hardwoods for load-bearing furniture and high-grade BWP Marine Plywood for modular storage in our **CREATE** and **FABRICATE** studios."
+        )
+        suggestions = [
+            "What material is suitable for a wardrobe?",
+            "Precision Timber Fabrication",
+            "Design Custom Furniture",
+            "Care for Wooden Furniture"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "fabricate"}
+
+    # 5C. Furniture Selection Advice (Dining table, Wardrobe, Sofa, Small Room)
+    if any(k in msg_lower for k in ["suitable for a dining table", "wood for dining table", "choose a dining table", "dining table material"]):
+        reply = (
+            "🍽️ **Choosing the Right Material for a Dining Table:**\n\n"
+            "• **Recommended Woods**: **Solid Teak Wood** or **Mahogany** are the best choices because of their high density, resistance to heat, and durability against food/liquid spills.\n"
+            "• **Standard Dimensions**:\n"
+            "  - 4-Seater: ~120 × 80 cm (48 × 32 inches)\n"
+            "  - 6-Seater: ~180 × 90 cm (72 × 36 inches)\n"
+            "  - 8-Seater: ~240 × 100 cm (96 × 40 inches)\n"
+            "  - Standard Height: ~75 cm (30 inches)\n"
+            "• **Finishes**: A polyurethane (PU) matte or satin seal provides superior protection against hot plates and scratches.\n\n"
+            "You can explore ready-made dining sets in **SHOP** or configure custom dimensions in **CREATE**."
+        )
+        suggestions = [
+            "Browse Ready-Made Dining Tables",
+            "Design Custom Dining Table",
+            "How do I maintain wooden furniture?"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "create"}
+
+    if any(k in msg_lower for k in ["suitable for a wardrobe", "material for wardrobe", "choose a wardrobe", "designing a wardrobe", "wardrobe material"]):
+        reply = (
+            "🚪 **Wardrobe Planning & Material Guidelines:**\n\n"
+            "• **Internal Carcass**: **BWP Marine Plywood (18mm)** is strongly recommended for structural shelves and carcass boxes due to its resistance to moisture and sagging.\n"
+            "• **Shutters/Doors**: Solid hardwood frame, natural wood veneer, or high-pressure laminate.\n"
+            "• **Standard Dimensions**:\n"
+            "  - Standard Depth: **24 inches (60 cm)** to allow full-size clothes hangers without crushing sleeves.\n"
+            "  - Height: Standard ceiling heights typically accommodate **7 to 8 feet (210–240 cm)**.\n\n"
+            "You can design custom wardrobes in our **CREATE** studio or submit plywood sheet cutting in **FABRICATE**."
+        )
+        suggestions = [
+            "Design Custom Wardrobe",
+            "Submit Plywood Sheet for Cutting",
+            "Book On-Site Carpenter for Wardrobe"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "create"}
+
+    if any(k in msg_lower for k in ["choosing a sofa", "choose a sofa", "sofa selection", "what to consider for sofa"]):
+        reply = (
+            "🛋️ **Key Factors When Choosing a Sofa:**\n\n"
+            "1. **Internal Frame**: Ensure a kiln-dried solid hardwood frame (e.g. Teak, Marandi, or Sal wood) with reinforced corner blocks for durability.\n"
+            "2. **Cushioning & Foam**: High-Resilience (HR) foam with 32 to 40 density offers optimal balance of comfort and longevity without sagging.\n"
+            "3. **Upholstery Fabric**: Breathable linen/cotton blends for daily comfort, or stain-resistant performance velvet/leatherette for high-traffic living rooms.\n"
+            "4. **Proportions**: Allow at least 30 inches of walking clearance around the sofa."
+        )
+        suggestions = [
+            "Browse Ready-Made Sofas",
+            "Design Custom Sofa",
+            "Book Sofa Upholstery Service"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "shop"}
+
+    if any(k in msg_lower for k in ["small room", "small space", "small apartment", "compact furniture"]):
+        reply = (
+            "🏡 **Furniture Selection for Small Spaces & Compact Rooms:**\n\n"
+            "• **Multi-Functional Pieces**: Hydraulic storage beds, extendable dining tables, and modular nesting tables.\n"
+            "• **Visual Openness**: Choose sofas and credenzas with elevated legs to keep floor lines visible, making the room feel larger.\n"
+            "• **Wall-Mounted Elements**: Floating desks and wall shelves preserve floor square footage.\n"
+            "• **Custom Dimensions**: In our **CREATE** studio, you can specify exact custom width, depth, and height tailored to your room layout."
+        )
+        suggestions = [
+            "Design Custom Compact Furniture",
+            "Browse Space-Saving Furniture",
+            "Book On-Site Measurement"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "create"}
+
+    # 5D. Furniture Care & Maintenance
+    if any(k in msg_lower for k in ["maintain wooden furniture", "care for wooden furniture", "clean wooden furniture", "furniture maintenance", "protect from moisture"]):
+        reply = (
+            "✨ **Furniture Care & Maintenance Guide:**\n\n"
+            "• **Dusting**: Use a soft, dry microfiber cloth regularly. Avoid abrasive scouring pads.\n"
+            "• **Polishing**: Apply a natural beeswax or teak oil polish every 6–12 months to nourish the wood grain.\n"
+            "• **Moisture & Sunlight**: Keep wooden pieces away from direct heat sources and direct sunlight to prevent drying or hairline cracks.\n"
+            "• **Spills**: Blot spills immediately with a damp cloth; always use coasters under beverage glasses.\n"
+            "• **Monsoon Protection**: Keep furniture 2 inches away from exterior walls to allow air circulation and prevent dampness."
+        )
+        suggestions = [
+            "Book On-Site Wood Polishing",
+            "Book Furniture Repair",
+            "Browse Furniture Catalog"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "services"}
+
+    if any(k in msg_lower for k in ["clean upholstery", "clean sofa", "upholstery maintenance", "clean fabric sofa"]):
+        reply = (
+            "🛋️ **Upholstery Cleaning & Care Tips:**\n\n"
+            "• **Vacuuming**: Vacuum fabric weekly using a soft brush attachment to remove dust and allergens from seams.\n"
+            "• **Spot Cleaning**: For liquid spills, blot immediately with a clean, dry absorbent cloth. Never scrub, as scrubbing can spread stains.\n"
+            "• **Deep Refresh**: For stubborn stains or worn foam, our skilled service team provides on-site sofa restoration and fabric re-upholstery."
+        )
+        suggestions = [
+            "Book Sofa Upholstery Service",
+            "Browse Ready-Made Sofas",
+            "Contact Support Team"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "services"}
+
+    # =========================================================================
+    # INTENT 6: MULTI-TURN CUSTOM SPECIFICATION GUIDANCE
+    # =========================================================================
+    # e.g. User says "a wardrobe" after asking about custom furniture
+    if msg_lower in ["a wardrobe", "wardrobe", "a sofa", "sofa", "a dining table", "dining table", "a bed", "bed", "a table", "table", "a chair", "chair"] and context_topic == "CUSTOM":
+        reply = f"Great! What approximate dimensions (Height × Width × Depth), wood type, or special features do you have in mind for your custom **{msg_lower.replace('a ', '')}**?"
+        suggestions = [
+            "Standard Dimensions Guide",
+            "Use Teak Wood",
+            "I have my own timber",
+            "Open CREATE Studio"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "create"}
+
+    # e.g. User provides dimensions like "7 feet tall", "8 feet by 6 feet", "6 seater", "l-shaped"
+    if any(d in msg_lower for d in ["7 feet", "8 feet", "6 feet", "feet tall", "feet by", "8x6", "6 seater", "4 seater", "8 seater", "l-shaped", "queen size", "king size"]):
+        if active_item or context_topic == "CUSTOM":
+            item_name = active_item or "custom furniture piece"
+            reply = (
+                f"📐 **Custom Specifications Received for Your {item_name.title()}:**\n\n"
+                f"You noted: **'{msg}'**.\n\n"
+                "**Next Steps to Get Your Quotation:**\n"
+                "1. Head over to the **CREATE** studio in the top navigation.\n"
+                "2. Input these dimensions and select your preferred wood (e.g. Solid Teak, Rosewood, Mahogany, or Customer-Supplied Timber).\n"
+                "3. Upload any reference photos or sketches.\n"
+                "4. The RetailSphere AI workshop team will review the specifications and formulate an itemized quotation for your review."
             )
-        db_products = query.limit(4).all()
+            suggestions = [
+                "Open CREATE Studio",
+                "Can I provide my own wood?",
+                "How does quotation approval work?",
+                "Available wood species"
+            ]
+            return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "create"}
+
+    # Context-aware timber pickup follow-up
+    if any(k in msg_lower for k in ["pick it up", "pick up", "pickup", "collect from my house", "collect from home", "doorstep pickup"]) and (context_topic in ["MATERIAL", "FABRICATION"] or "timber" in full_conversation_text or "wood" in full_conversation_text):
+        reply = (
+            "🚚 **Doorstep Timber & Material Pickup:**\n\n"
+            "Yes! RetailSphere AI provides **Doorstep Timber Pickup** for your materials.\n\n"
+            "• **How to Book**: When configuring your request in the **FABRICATE** tab, select *'RetailSphere Pickup'* as your material arrival mode and provide your pickup address.\n"
+            "• **Freight Calculation**: Transportation charges are calculated transparently based on transit distance (km).\n"
+            "• **Processing**: Our logistics team collects your timber and delivers it directly to our precision workshop for machining."
+        )
+        suggestions = [
+            "Open FABRICATE Studio",
+            "Precision Wood Fabrication",
+            "Can I provide my own wood?",
+            "View My Orders"
+        ]
+        return {"response": reply, "suggestions": suggestions, "products": [], "action_tab": "fabricate"}
+
+    # =========================================================================
+    # INTENT 7: CUSTOMER-OWNED TIMBER / MATERIAL HANDLING
+    # =========================================================================
+    if any(k in msg_lower for k in ["own wood", "my wood", "own timber", "my timber", "bring wood", "bring my wood", "customer wood", "customer timber", "supply my own wood", "have wood", "have timber", "bring timber", "my own wood"]):
+        reply = (
+            "🪵 **Using Your Own Timber with RetailSphere AI:**\n\n"
+            "Yes! RetailSphere AI fully supports customer-owned timber (such as Teak, Rosewood, Mahogany, or Anjili). You can use your wood in three ways:\n\n"
+            "1. 🪚 **Precision Timber Fabrication (FABRICATE Tab)**:\n"
+            "   • Submit cutting specifications, CNC routing, 4-side planing, or surface sizing.\n"
+            "   • Choose **Doorstep Timber Pickup** (our logistics team collects your wood) or **Workshop Drop-off**.\n"
+            "   • You only pay for machine processing and labor — zero raw material markup!\n\n"
+            "2. 🛠️ **On-Site Master Carpenter (SERVICES Tab)**:\n"
+            "   • Book our skilled carpenters to visit your home/site to inspect and craft furniture using your timber.\n\n"
+            "3. 📐 **Bespoke Custom Furniture (CREATE Tab)**:\n"
+            "   • Submit your custom furniture design and select *Customer-Supplied Timber*."
+        )
+        suggestions = [
+            "Book On-Site Carpenter for my wood",
+            "Submit Timber for Fabrication",
+            "Design Custom Furniture with my wood",
+            "Check Doorstep Freight Options"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "fabricate"
+        }
+
+    # =========================================================================
+    # INTENT 8: CUSTOM FURNITURE & BESPOKE STUDIO (CREATE)
+    # =========================================================================
+    is_custom_query = any(k in msg_lower for k in [
+        "custom", "bespoke", "create studio", "customize", "customise", "custom furniture",
+        "make a sofa", "make a table", "make a bed", "make a dining", "make a chair",
+        "custom sofa", "custom table", "custom bed", "custom dining", "tailor made",
+        "my dimensions", "specific size", "design my own", "reference sketch", "reference photo"
+    ]) or (context_topic == "CUSTOM" and any(k in msg_lower for k in ["how much", "cost", "price", "material", "wood", "time", "how long", "steps", "workflow"]))
+
+    if is_custom_query:
+        if any(k in msg_lower for k in ["how much", "price", "cost", "quotation", "rate"]):
+            reply = (
+                "📐 **Custom Furniture Pricing & Quotation Process:**\n\n"
+                "Because every custom furniture piece is uniquely crafted, the final cost depends on:\n"
+                "• Exact dimensions (Width × Depth × Height)\n"
+                "• Selected wood species (Solid Teak, Rosewood, Mahogany, Walnut, etc.) or customer-supplied timber\n"
+                "• Finishing & hardware choices (Matte PU, Gloss, Natural Polish, Brass accents)\n\n"
+                "**How to get an exact quotation:**\n"
+                "1. Go to the **CREATE** section and submit your dimensions and reference photos.\n"
+                "2. The RetailSphere AI team assesses the design and prepares a formal itemized quotation.\n"
+                "3. You review and approve the quotation in your account before payment."
+            )
+        else:
+            reply = (
+                "✨ **How Bespoke Custom Furniture Works at RetailSphere AI:**\n\n"
+                "1. 📝 **Submit Specifications**: Open the **CREATE** studio, enter your desired furniture type, dimensions, wood selection, finish, and upload reference photos/sketches.\n"
+                "2. 🔍 **Assessment & Quotation**: The RetailSphere AI team reviews the requirements. Once evaluated, our workshop team assesses the work and prepares an itemized quotation.\n"
+                "3. ✅ **Customer Approval & Payment**: Review the quotation in your portal and approve it. Payment is completed online to confirm your order.\n"
+                "4. 🔨 **Artisan Crafting**: Master craftsmen construct your piece through precision joinery, assembly, sanding, and finishing.\n"
+                "5. 🛡️ **Quality Control & Delivery**: After rigorous QC inspection, your finished piece is packed and delivered safely to your doorstep."
+            )
+        suggestions = [
+            "Open CREATE Studio",
+            "Can I provide my own wood?",
+            "How do I approve a quotation?",
+            "What timber species are available?"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "create"
+        }
+
+    # =========================================================================
+    # INTENT 9: PRECISION FABRICATION & TIMBER CUTTING (FABRICATE)
+    # =========================================================================
+    is_fabrication_query = any(k in msg_lower for k in [
+        "fabricat", "wood cutting", "timber cutting", "cut timber", "cut wood", "cut my wood",
+        "cnc", "planing", "plane", "shaping", "shape", "drilling", "drill", "edge banding", "edge-banding",
+        "sheet optimizer", "cutting sheet", "cutting optimizer", "panel sizing", "sawing", "cut and shape", "timber board", "cut board"
+    ]) or (any(w in msg_lower for w in ["cut", "shape", "sizing"]) and any(m in msg_lower for m in ["timber", "wood", "board", "plank", "panel", "sheet"])) or \
+       (context_topic == "FABRICATION" and any(k in msg_lower for k in ["how much", "cost", "price", "pickup", "delivery", "wood", "timber", "steps"]))
+
+    if is_fabrication_query:
+        reply = (
+            "🪚 **Precision Timber Fabrication Services:**\n\n"
+            "RetailSphere AI provides industrial-grade woodworking and fabrication operations:\n\n"
+            "• **Available Operations**: Precision Sheet Sizing, CNC Routing & Carving, 4-Side Planing, Edge-Banding, Mortise & Tenon Joinery, Surface Finishing.\n"
+            "• **2D Sheet Cutting Optimizer**: Use our automated bin-packing tool in the **FABRICATE** tab to minimize timber wastage.\n"
+            "• **Material Source**: Use RetailSphere AI warehouse stock timber or supply your own wood logs/planks.\n"
+            "• **Transportation**: Choose **Doorstep Pickup & Delivery** (calculated by distance) or **Workshop Drop-off / Collection**.\n\n"
+            "**Workflow**: Submit specs ➔ Assessment & Quotation ➔ Customer Approval & Payment ➔ Machine Execution ➔ Quality Inspection ➔ Delivery/Pickup."
+        )
+        suggestions = [
+            "Open FABRICATE Studio",
+            "Use 2D Sheet Cutting Optimizer",
+            "Can I provide my own wood?",
+            "Check Doorstep Freight Options"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "fabricate"
+        }
+
+    # =========================================================================
+    # INTENT 10: ON-SITE SKILLED SERVICES (SERVICES)
+    # =========================================================================
+    is_onsite_query = any(k in msg_lower for k in [
+        "on-site", "onsite", "home service", "come to my house", "come home", "carpenter",
+        "carpentry", "furniture assembly", "assemble furniture", "installation", "install",
+        "upholstery", "sofa repair", "sofa fabric", "polishing", "restoration", "polish wood",
+        "inspection", "measurement", "handyman", "repair furniture", "fix furniture", "repair chair", "repair table", "repair sofa"
+    ]) or (context_topic == "ON_SITE" and any(k in msg_lower for k in ["how much", "cost", "price", "schedule", "time", "date", "address", "book"]))
+
+    if is_onsite_query:
+        reply = (
+            "🛠️ **On-Site Skilled Services at Your Location:**\n\n"
+            "RetailSphere AI provides verified, experienced technicians for on-site services:\n\n"
+            "• **Carpentry & Joinery**: Structural wood repairs, hinge & drawer alignments, custom cabinetry fittings.\n"
+            "• **Furniture Assembly**: Professional assembly for modular wardrobes, dining tables, and flat-pack furniture.\n"
+            "• **Sofa & Upholstery**: Fabric re-covering, cushion foam replacement, leatherette repair.\n"
+            "• **Restoration & Polishing**: PU spray polish, French polish, teak oil revitalization, scratch removal.\n"
+            "• **Inspection & Measurement**: Architectural space measurement and timber moisture/condition inspection.\n\n"
+            "**How to Book**:\n"
+            "1. Visit the **SERVICES** tab and pick your service category.\n"
+            "2. Pinpoint your address on the interactive map and select your preferred date and time slot (Morning, Afternoon, Evening).\n"
+            "3. The RetailSphere AI team reviews your request and issues a quotation.\n"
+            "4. Once confirmed, an artisan is dispatched to your doorstep."
+        )
+        suggestions = [
+            "Book an On-Site Carpenter",
+            "Book Furniture Assembly",
+            "Book Sofa Upholstery",
+            "Book Wood Polishing"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "services"
+        }
+
+    # =========================================================================
+    # INTENT 11: CUSTOMER PROFILE & ADDRESS BOOK
+    # =========================================================================
+    if any(k in msg_lower for k in ["address", "change address", "update address", "my profile", "update profile", "change phone", "change name", "account settings"]):
+        reply = (
+            "👤 **Managing Your Profile & Addresses:**\n\n"
+            "• **Profile Settings**: Go to **Profile** (`/profile`) to update your full name, phone number, and account details.\n"
+            "• **Saved Addresses**: Under the **Addresses** tab, you can add multiple delivery locations and designate a **Default Address**.\n"
+            "• **Automatic Auto-Fill**: Your default address is automatically populated during ready-made checkout, custom order submission, and on-site service location selection."
+        )
+        suggestions = [
+            "Go to Profile Settings",
+            "View My Orders",
+            "Browse Furniture Catalog"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": None
+        }
+
+    # =========================================================================
+    # INTENT 12: TRANSPORTATION, CARRIER PARTNERS & DELIVERY LOGISTICS
+    # =========================================================================
+    if any(k in msg_lower for k in [
+        "delivery", "deliver", "delivered", "shipping", "shipped", "carrier", "courier", "transport", "freight", "bluedart",
+        "delhivery", "who delivers", "choose carrier", "select carrier", "choose courier",
+        "delivery charge", "shipping cost", "how will it be delivered", "driver", "how will my order be delivered"
+    ]):
+        reply = (
+            "🚚 **Transportation & Delivery Logistics at RetailSphere AI:**\n\n"
+            "• **Transportation Assignment**: RetailSphere AI arranges the appropriate transportation method (our dedicated specialized fleet or trusted logistics partners) based on the size, weight, and destination of your items to guarantee safe transit.\n"
+            "• **Customer Options**: You can choose between **Doorstep Delivery** and **Self-Pickup** at checkout or request submission.\n"
+            "• **Carrier Selection**: To ensure optimal handling and timely delivery, carrier and driver assignments are managed directly by RetailSphere AI's logistics team.\n"
+            "• **Live Milestone Tracking**: Once dispatched, you receive a tracking number and can follow status updates (**Packed ➔ Shipped ➔ Out for Delivery ➔ Delivered**) with digital Proof of Delivery."
+        )
+        suggestions = [
+            "Track My Order",
+            "Ready-Made Furniture Checkout",
+            "Fabrication Freight Options",
+            "View My Orders"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "orders"
+        }
+
+    # =========================================================================
+    # INTENT 13: ORDERS & TRACKING (Context-Aware / User-Aware)
+    # =========================================================================
+    if any(k in msg_lower for k in [
+        "where is my order", "order status", "track my order", "track order", "track shipment",
+        "my orders", "check order", "order progress", "when will it arrive", "delivery status"
+    ]):
+        if current_user and customer_record:
+            # Query recent orders across workflows for authenticated customer
+            ready_orders = db.query(models.ReadymadeOrder).filter(
+                models.ReadymadeOrder.customer_id == customer_record.customer_id
+            ).order_by(models.ReadymadeOrder.order_date.desc()).limit(3).all()
+
+            custom_orders = db.query(models.CustomOrder).filter(
+                models.CustomOrder.customer_id == customer_record.customer_id
+            ).order_by(models.CustomOrder.order_date.desc()).limit(2).all()
+
+            fab_requests = db.query(models.FabricationRequest).filter(
+                models.FabricationRequest.customer_id == customer_record.customer_id
+            ).order_by(models.FabricationRequest.created_at.desc()).limit(2).all()
+
+            service_requests = db.query(models.ServiceRequest).filter(
+                models.ServiceRequest.customer_id == customer_record.customer_id
+            ).order_by(models.ServiceRequest.created_at.desc()).limit(2).all()
+
+            if ready_orders or custom_orders or fab_requests or service_requests:
+                reply = f"📦 **Hello {current_user.full_name}, here is your active activity summary:**\n\n"
+                
+                if ready_orders:
+                    reply += "🛋️ **Ready-Made Orders:**\n"
+                    for ro in ready_orders:
+                        tracking_str = f" | Tracking: {ro.fulfillment.tracking_number}" if ro.fulfillment and ro.fulfillment.tracking_number else ""
+                        reply += f"• **Order #{ro.order_id}** — Status: **{ro.order_status}** (₹{float(ro.total_amount):,.2f}){tracking_str}\n"
+                    reply += "\n"
+
+                if custom_orders:
+                    reply += "📐 **Custom Furniture:**\n"
+                    for co in custom_orders:
+                        reply += f"• **Custom #{co.custom_order_id} ({co.furniture_type})** — Status: **{co.order_status}** | Payment: **{co.payment_status or 'Pending'}**\n"
+                    reply += "\n"
+
+                if fab_requests:
+                    reply += "🪚 **Fabrication Requests:**\n"
+                    for fo in fab_requests:
+                        reply += f"• **Fab #{fo.fabrication_id} ({fo.service_type})** — Status: **{fo.status}**\n"
+                    reply += "\n"
+
+                if service_requests:
+                    reply += "🛠️ **On-Site Services:**\n"
+                    for so in service_requests:
+                        reply += f"• **Service #{so.service_id} ({so.service_category})** — Status: **{so.status}** (Date: {so.preferred_date})\n"
+
+                reply += "\nYou can view live step-by-step progress under **My Activity / Orders**."
+                suggestions = ["Check Order Tracking", "Contact Support", "Shop Ready-Made", "Design Custom Furniture"]
+                action_tab = "orders"
+                return {
+                    "response": reply,
+                    "suggestions": suggestions,
+                    "products": [],
+                    "action_tab": action_tab
+                }
+            else:
+                reply = (
+                    f"📦 **Hello {current_user.full_name}!**\n\n"
+                    "You currently do not have any active orders or service requests. Browse our catalog or submit a custom request to get started!"
+                )
+                suggestions = ["Browse Ready-Made Furniture", "Design Custom Furniture", "Book On-Site Service"]
+                return {
+                    "response": reply,
+                    "suggestions": suggestions,
+                    "products": [],
+                    "action_tab": "shop"
+                }
+        else:
+            reply = (
+                "📦 **How to Track Your Orders & Services:**\n\n"
+                "• **Logged-In Customers**: Head to **My Orders / My Activity** in the navigation bar to see live milestone progression, assigned logistics partners, and tracking numbers.\n"
+                "• **Milestones**: You can follow each stage (**Order Confirmed ➔ In Production / Packed ➔ Dispatched ➔ Out for Delivery ➔ Delivered**).\n\n"
+                "Please log in to your RetailSphere AI account to view your specific order history."
+            )
+            suggestions = ["Log In to View Orders", "Browse Catalog", "Custom Furniture Guide", "Delivery Information"]
+            return {
+                "response": reply,
+                "suggestions": suggestions,
+                "products": [],
+                "action_tab": "orders"
+            }
+
+    # =========================================================================
+    # INTENT 14: QUOTATIONS (Customer Formal Quotes)
+    # =========================================================================
+    if any(k in msg_lower for k in ["quotation", "quote", "how do quotes work", "estimate price", "quote approval", "approve quotation"]):
+        reply = (
+            "📋 **How Quotations Work at RetailSphere AI:**\n\n"
+            "Formal quotations apply to **Custom Furniture**, **Precision Fabrication**, and **On-Site Services**:\n\n"
+            "1. 🔍 **Assessment**: When you submit your requirements, the RetailSphere AI team calculates material quantities, machining time, finishing, and transportation.\n"
+            "2. 📄 **Itemized Quotation**: A transparent quote is issued to your account breakdown showing labor, materials, freight, and taxes.\n"
+            "3. ✅ **Review & Approval**: You can review and approve the quote directly in your portal.\n"
+            "4. 💳 **Payment**: Once approved, online payment is completed to initiate workshop crafting or technician scheduling."
+        )
+        suggestions = [
+            "Start a Custom Furniture Request",
+            "Submit Fabrication Specs",
+            "Book On-Site Skilled Service",
+            "View My Active Quotes"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "create"
+        }
+
+    # =========================================================================
+    # INTENT 15: PAYMENTS & PAYMENT METHODS
+    # =========================================================================
+    if any(k in msg_lower for k in ["payment", "pay", "how do i pay", "when do i pay", "razorpay", "payment methods", "cod", "cash on delivery"]):
+        reply = (
+            "💳 **Payment Policy & Methods at RetailSphere AI:**\n\n"
+            "• **Ready-Made Catalog Purchases**: Payment is completed upfront during checkout using our secure online payment gateway (Cards, UPI, Net Banking) or Cash on Delivery where eligible.\n"
+            "• **Custom Furniture, Fabrication & On-Site Services**: No upfront payment is required upon initial submission. Payment is made online **after** you receive, review, and approve the formal quotation.\n"
+            "• **Security**: All transactions are securely processed with verified digital payment receipts."
+        )
+        suggestions = [
+            "Browse Furniture Catalog",
+            "Design Custom Furniture",
+            "Precision Fabrication Studio",
+            "Check Active Orders"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": None
+        }
+
+    # =========================================================================
+    # INTENT 16: COUPONS, OFFERS & DISCOUNTS
+    # =========================================================================
+    if any(k in msg_lower for k in ["coupon", "discount", "offer", "promo", "promo code", "voucher", "deal", "sale"]):
+        active_coupons = db.query(models.Coupon).filter(
+            models.Coupon.status == "Active"
+        ).limit(3).all()
+
+        if active_coupons:
+            coupon_lines = []
+            for c in active_coupons:
+                discount_desc = f"{c.discount_percent}% OFF" if c.discount_percent else f"₹{float(c.flat_discount_amount or 0):,.0f} OFF"
+                min_spend = f" (Min spend: ₹{float(c.customer_limit or 0):,.0f})" if c.customer_limit else ""
+                coupon_lines.append(f"• **{c.code}** — {discount_desc}{min_spend}: {c.description}")
+            
+            c_text = "\n".join(coupon_lines)
+            reply = f"🎉 **Active Promotional Offers:**\n\n{c_text}\n\nYou can enter these codes during cart checkout to apply instant discounts!"
+        else:
+            reply = (
+                "🎉 **Promotions & Offers at RetailSphere AI:**\n\n"
+                "Promotional discounts and seasonal coupons are published periodically on our homepage and sent via notifications.\n\n"
+                "If you have a valid promo code, you can enter it directly on the **Cart Checkout** page."
+            )
+
+        suggestions = [
+            "Shop Ready-Made Furniture",
+            "View My Cart",
+            "Design Custom Furniture",
+            "On-Site Service Booking"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "shop"
+        }
+
+    # =========================================================================
+    # INTENT 17: REVIEWS & RATINGS
+    # =========================================================================
+    if any(k in msg_lower for k in ["review", "rating", "write a review", "leave a review", "feedback", "how to review"]):
+        reply = (
+            "⭐ **Product Reviews & Ratings:**\n\n"
+            "• **Verified Buyer Reviews**: To ensure authentic feedback, reviews and 1–5 star ratings can be submitted by customers who have purchased and received the product.\n"
+            "• **How to Submit**: Visit the product page or your completed order in **My Orders** to submit your rating and comments."
+        )
+        suggestions = [
+            "View My Orders",
+            "Browse Catalog Items",
+            "Customer Support"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "orders"
+        }
+
+    # =========================================================================
+    # INTENT 18: WARRANTY & RETURNS
+    # =========================================================================
+    if any(k in msg_lower for k in ["warranty", "return", "refund", "replace", "guarantee", "cancellation", "cancel order"]):
+        reply = (
+            "🛡️ **Warranty, Returns & Assurance:**\n\n"
+            "• **Craftsmanship Assurance**: Solid wood products undergo rigorous quality inspection before dispatch.\n"
+            "• **Order Cancellations**: Ready-made orders can be cancelled from your order dashboard prior to dispatch.\n"
+            "• **Return Requests**: For eligible delivered catalog products, return requests can be submitted through **My Orders** within the eligible return window.\n"
+            "• **Custom & Fabrication Orders**: Because custom pieces are bespoke manufactured to individual specifications, changes are coordinated directly during the quotation and review stage."
+        )
+        suggestions = [
+            "View My Orders",
+            "Browse Catalog Items",
+            "Contact Support Team"
+        ]
+        return {
+            "response": reply,
+            "suggestions": suggestions,
+            "products": [],
+            "action_tab": "orders"
+        }
+
+    # =========================================================================
+    # INTENT 19: PRODUCT CATALOG SEARCH & RECOMMENDATIONS (Real DB Data)
+    # =========================================================================
+    catalog_triggers = ["show", "recommend", "looking for", "find", "buy", "search", "what products", "list", "furniture", "catalog", "table", "sofa", "chair", "bed", "wardrobe", "desk", "cabinet", "shelf"]
+    if any(trig in msg_lower for trig in catalog_triggers):
+        specific_keywords = ["dining table", "table", "sofa", "chair", "bed", "wardrobe", "desk", "cabinet", "shelf", "teak", "oak", "walnut"]
+        matched_kw = next((kw for kw in specific_keywords if kw in msg_lower), None)
+
+        query = db.query(models.Product).filter(models.Product.stock_quantity > 0)
+        if matched_kw:
+            query = query.filter(
+                (models.Product.product_name.ilike(f"%{matched_kw}%")) |
+                (models.Product.material.ilike(f"%{matched_kw}%")) |
+                (models.Product.description.ilike(f"%{matched_kw}%"))
+            )
         
+        db_products = query.limit(4).all()
         if not db_products:
             db_products = db.query(models.Product).filter(models.Product.stock_quantity > 0).limit(3).all()
 
@@ -429,22 +1238,22 @@ def customer_ai_assistant(req: CustomerAssistantRequest, db: Session = Depends(g
                 "product_id": p.product_id,
                 "product_name": p.product_name,
                 "price": float(p.price),
-                "material": p.material,
-                "color": p.color,
+                "material": p.material or "Solid Timber",
+                "color": p.color or "Natural Finish",
                 "category": p.category.category_name if p.category else "Furniture",
                 "image": p_img or "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80"
             })
 
         if recommended_products:
-            reply = f"Here are handcrafted furniture pieces from our catalog matching your interest:\n\n"
+            reply = "🛋️ **Handcrafted Furniture Pieces Available in Our Catalog:**\n\n"
             for p in recommended_products:
                 reply += f"• **{p['product_name']}** — ₹{p['price']:,.2f} ({p['material']}, {p['color']})\n"
-            reply += "\nYou can also customize any dimension or material in our **CREATE** studio!"
+            reply += "\nYou can also configure custom dimensions and finishes in our **CREATE** studio!"
             suggestions = [
                 "How do I customize this?",
-                "Can I bring my own wood?",
-                "What is your warranty?",
-                "Check delivery options"
+                "Can I provide my own wood?",
+                "Check delivery options",
+                "Book an on-site carpenter"
             ]
             action_tab = "shop"
             return {
@@ -454,180 +1263,20 @@ def customer_ai_assistant(req: CustomerAssistantRequest, db: Session = Depends(g
                 "action_tab": action_tab
             }
 
-    # 2. Customer-Owned Wood / Timber
-    if any(w in msg_lower for w in ["own wood", "my wood", "timber", "logs", "bring wood", "customer wood", "customer material", "have wood", "have timber"]):
-        reply = (
-            "🪵 **Using Your Own Timber with RetailSphere AI:**\n\n"
-            "If you already have your own wood or timber logs (such as Teak, Rosewood, Mahogany, or Anjili), you can directly choose:\n\n"
-            "1. 🛠️ **On-Site Skilled Carpenter Bookings (SERVICES Tab)**:\n"
-            "   • Book our verified master carpenters to come directly to your home/site.\n"
-            "   • They will inspect your timber on-site and craft, modify, or assemble furniture and joinery right at your location.\n\n"
-            "2. 🪚 **Timber & Board Fabrication (FABRICATE Tab)**:\n"
-            "   • Submit your timber dimensions, CNC cutting, 4-side planing, or surface sizing specifications.\n"
-            "   • Choose doorstep timber pickup or workshop delivery — our automated machines will process your wood with zero raw material markup.\n\n"
-            "3. 📐 **Bespoke Furniture (CREATE Tab)**:\n"
-            "   • Submit custom furniture designs and indicate you will supply your own seasoned timber."
-        )
-        suggestions = [
-            "Book an on-site carpenter for my wood",
-            "Submit timber for fabrication & cutting",
-            "Design custom furniture in Create studio",
-            "Show available catalog products"
-        ]
-        action_tab = "services"
-        return {
-            "response": reply,
-            "suggestions": suggestions,
-            "products": recommended_products,
-            "action_tab": action_tab
-        }
-
-    # 3. Custom Furniture & CREATE Studio
-    elif any(w in msg_lower for w in ["custom", "design", "create", "bespoke", "make a", "tailor"]):
-        reply = (
-            "✨ **Design Your Bespoke Custom Furniture:**\n\n"
-            "• **Visual 3D & AI Spec Generator**: Head to **CREATE** from the navigation bar.\n"
-            "• **Photo / Sketch Input**: Upload reference photos or input exact dimensions (Width × Depth × Height).\n"
-            "• **Material & Finish Choice**: Select Solid Teak, Walnut, Rosewood, or link your own registered timber.\n"
-            "• **Instant Quotation**: Production breakdown with transparent labor, material, and finishing charges."
-        )
-        suggestions = [
-            "What is the average production time?",
-            "Can I use my own wood?",
-            "What finishes are available?",
-            "View standard catalog items"
-        ]
-        action_tab = "create"
-
-    # 4. Fabrication & Precision Woodworking
-    elif any(w in msg_lower for w in ["fabricat", "cut", "cnc", "planing", "shaping", "drill", "edge band", "sawing"]):
-        reply = (
-            "🪚 **Precision Wood Fabrication & Machinery Services:**\n\n"
-            "• **Services Available**: CNC routing & carving, precision panel sizing, four-side planing, joinery mortising, and edge banding.\n"
-            "• **How to Order**: Open the **FABRICATE** tab, choose your cutting specifications or upload CAD drawings, and select pickup or doorstep transport.\n"
-            "• **Industrial Precision**: Automated laser-guided cutting with minimal wood wastage."
-        )
-        suggestions = [
-            "Register customer wood for fabrication",
-            "Calculate transportation cost",
-            "Book on-site carpentry assembly",
-            "Back to shop"
-        ]
-        action_tab = "fabricate"
-
-    # 5. On-Site Artisan & Handyman Services
-    elif any(w in msg_lower for w in ["service", "repair", "carpenter", "artisan", "upholstery", "polish", "assemble", "installation", "fix"]):
-        reply = (
-            "🛠️ **On-Site Artisan & Skilled Services:**\n\n"
-            "• **Carpentry & Joinery**: Furniture repair, structural fixes, hinge & drawer fitting.\n"
-            "• **Sofa & Upholstery**: Fabric replacement, high-density foam re-stuffing, leatherette repair.\n"
-            "• **Restoration & Polishing**: PU spray polish, French polish, teak oil revitalization.\n"
-            "• **How to Book**: Visit **SERVICES**, pick your preferred date/time slot, enter your address, and our verified artisan will arrive with tools."
-        )
-        suggestions = [
-            "What are the service charges?",
-            "How long do repairs take?",
-            "Order custom furniture instead",
-            "Track my booked service"
-        ]
-        action_tab = "services"
-
-    # 6. Orders, Dispatch & Delivery Tracking
-    elif any(w in msg_lower for w in ["order", "track", "delivery", "shipping", "courier", "bluedart", "3pl", "dispatch", "where is"]):
-        reply = (
-            "🚚 **Order Tracking & Logistics:**\n\n"
-            "• **Real-Time Status**: View all live shipments, dispatch dates, assigned carrier partners (such as BlueDart / Delivery Times), and vehicle drivers under **MY ACTIVITY**.\n"
-            "• **Delivery Notifications**: You receive live status updates at each milestone (Packed → Dispatched → Out for Delivery → Delivered).\n"
-            "• **Safe Handling**: Heavy furniture items are dispatched with dedicated protective bubble-wrap and specialized transit fleet."
-        )
-        suggestions = [
-            "Check my active orders",
-            "Available payment methods",
-            "Return & warranty policy",
-            "Browse furniture catalog"
-        ]
-        action_tab = "orders"
-
-    # 7. Coupons, Offers & Discounts
-    elif any(w in msg_lower for w in ["coupon", "discount", "offer", "promo", "deal", "code", "sale"]):
-        # Check active coupons in DB
-        coupons = db.query(models.Coupon).filter(models.Coupon.is_active == True).limit(3).all()
-        if coupons:
-            c_text = "\n".join([f"• **{c.coupon_code}** — {int(c.discount_percent)}% OFF (Min spend: ₹{float(c.min_purchase_amount):,.0f})" for c in coupons])
-            reply = f"🎉 **Active Discount Codes for You:**\n\n{c_text}\n\nApply these promo codes during checkout to enjoy instant savings!"
-        else:
-            reply = "🎉 **Discounts & Offers:**\n\nUse code **FIRST10** for 10% OFF on your first furniture order, or explore bundle discounts on living room sets!"
-        
-        suggestions = [
-            "Shop discounted furniture",
-            "Start a custom design",
-            "Book a service artisan",
-            "How does shipping work?"
-        ]
-
-    # 8. Wood Types & Materials Comparison
-    elif any(w in msg_lower for w in ["teak", "mahogany", "rosewood", "plywood", "sheesham", "which wood", "best wood"]):
-        reply = (
-            "🌲 **Premium Timber Guide:**\n\n"
-            "• **Teak Wood (Tectona grandis)**: High natural oil content, exceptional termite & moisture resistance, best for indoor & outdoor furniture.\n"
-            "• **Rosewood (Dalbergia latifolia)**: Rich dark grain, ultra-dense and heavy, supreme luxury heirloom finish.\n"
-            "• **Mahogany**: Beautiful reddish-brown hue, fine grain, excellent stability for dining tables.\n"
-            "• **BWP Marine Plywood (IS:710)**: 100% waterproof boiling-water-proof engineered timber for modular wardrobes and storage."
-        )
-        suggestions = [
-            "Can I provide my own teak wood?",
-            "Show teak dining tables",
-            "Create custom rosewood piece",
-            "Wood fabrication options"
-        ]
-
-    # 9. Warranty & Returns
-    elif any(w in msg_lower for w in ["warranty", "return", "refund", "replace", "guarantee"]):
-        reply = (
-            "🛡️ **Warranty & Assurance Policy:**\n\n"
-            "• **Solid Wood Warranty**: Up to 5 Years against structural defects and borer/termite issues.\n"
-            "• **7-Day Easy Returns**: For standard catalog products in pristine condition.\n"
-            "• **Craftsmanship Guarantee**: Custom furniture and fabrication pieces undergo 3-tier QC inspection before dispatch."
-        )
-        suggestions = [
-            "Browse furniture collection",
-            "Design custom furniture",
-            "Contact customer support",
-            "Track existing order"
-        ]
-
-    # 10. Greetings & General Help
-    elif any(w in msg_lower for w in ["hi", "hello", "hey", "good morning", "good evening", "namaste", "help", "who are you"]):
-        reply = (
-            "👋 **Hello! I am RetailSphere AI Assistant.**\n\n"
-            "I'm here to assist you with:\n"
-            "• 🛋️ **Catalog Discovery**: Finding readymade luxury furniture pieces.\n"
-            "• 📐 **Custom Furniture**: Generating 3D specs & quotes in the Create Studio.\n"
-            "• 🪵 **Customer Wood**: Registering your own timber for manufacturing.\n"
-            "• 🪚 **Wood Fabrication**: Precision cutting, routing, and sizing.\n"
-            "• 🛠️ **Artisan Services**: Booking on-site carpenters & repair specialists.\n"
-            "• 🚚 **Logistics**: Live tracking of dispatches and carrier partners."
-        )
-        suggestions = [
-            "Show popular furniture",
-            "How do I use my own wood?",
-            "Design custom furniture",
-            "Book an on-site carpenter"
-        ]
-
-    # Fallback response
-    else:
-        reply = (
-            f"I understand you're asking about **'{msg}'**.\n\n"
-            "As your RetailSphere AI Assistant, I can help you search our furniture catalog, design bespoke custom pieces, submit wood fabrication cuts, register your own timber, or book skilled on-site artisans."
-        )
-        suggestions = [
-            "Browse Furniture Catalog",
-            "Design Custom Furniture",
-            "Register My Own Wood",
-            "Book On-Site Service",
-            "Track My Order"
-        ]
+    # =========================================================================
+    # INTENT 20: CONTEXTUAL FALLBACK
+    # =========================================================================
+    reply = (
+        f"I'm here to help you with **RetailSphere AI** services and furniture craftsmanship.\n\n"
+        "You can explore our **ready-made furniture catalog**, design **custom furniture** to your exact dimensions, submit **timber fabrication & CNC cutting** jobs, book **on-site master carpenters**, or ask general furniture selection and care questions."
+    )
+    suggestions = [
+        "Browse Furniture Catalog",
+        "Design Custom Furniture",
+        "Precision Wood Fabrication",
+        "Book On-Site Carpenter",
+        "Track My Order"
+    ]
 
     return {
         "response": reply,

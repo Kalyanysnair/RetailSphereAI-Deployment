@@ -71,8 +71,19 @@ import {
   ClipboardCheck,
   ShieldAlert,
   FileCheck2,
-  Globe
+  Globe,
+  Star,
+  Undo2,
+  Cpu,
+  FileSpreadsheet,
+  Scale
 } from 'lucide-react';
+
+import { AdminReviewsSection } from './sections/AdminReviewsSection';
+import { AdminCarrierGovernanceSection } from './sections/AdminCarrierGovernanceSection';
+import { AdminReturnsCancellationsSection } from './sections/AdminReturnsCancellationsSection';
+import { AdminMachinesSection } from './sections/AdminMachinesSection';
+import { AdminAILogsSection } from './sections/AdminAILogsSection';
 
 import {
   fetchRawMaterialsApi,
@@ -301,11 +312,34 @@ export const AdminDashboardPage: React.FC = () => {
     | 'carriers'
     | 'materials'
     | 'quality'
+    | 'audit'
+    | 'export_excel'
+    | 'reviews'
+    | 'carrier_governance'
+    | 'returns_cancellations'
+    | 'machines'
+    | 'ai_logs'
   >('overview');
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [hoveredSidebarTooltip, setHoveredSidebarTooltip] = useState<{ label: string; top: number; left: number } | null>(null);
+
+  const handleSidebarItemMouseEnter = (e: React.MouseEvent<HTMLElement>, label: string) => {
+    if (isSidebarCollapsed) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setHoveredSidebarTooltip({
+        label,
+        top: rect.top + rect.height / 2,
+        left: rect.right + 12,
+      });
+    }
+  };
+
+  const handleSidebarItemMouseLeave = () => {
+    setHoveredSidebarTooltip(null);
+  };
 
   const handleExportDatabaseExcel = async () => {
     setIsExportingExcel(true);
@@ -2631,6 +2665,25 @@ export const AdminDashboardPage: React.FC = () => {
 
   return (
     <div className="admin-theme relative min-h-screen bg-[#F7F2EB] text-[#2C2016] flex selection:bg-emerald-600 selection:text-white overflow-x-hidden font-sans">
+      {/* Floating Tooltip for Collapsed Sidebar */}
+      {isSidebarCollapsed && hoveredSidebarTooltip && (
+        <div
+          style={{
+            top: `${hoveredSidebarTooltip.top}px`,
+            left: `${hoveredSidebarTooltip.left}px`,
+            transform: 'translateY(-50%)',
+          }}
+          className="fixed z-[9999] pointer-events-none flex items-center transition-opacity duration-150 animate-in fade-in zoom-in-95"
+        >
+          {/* Caret Indicator */}
+          <div className="w-0 h-0 border-y-[5px] border-y-transparent border-r-[6px] border-r-[#2C2016] -mr-[1px]" />
+          {/* Tooltip Label Badge */}
+          <div className="px-3 py-1.5 bg-[#2C2016]/95 backdrop-blur-md text-[#FAF5ED] text-xs font-bold rounded-xl shadow-[0_8px_30px_rgba(44,32,22,0.4)] border border-[#5A4533] whitespace-nowrap tracking-wide flex items-center gap-1.5">
+            <span>{hoveredSidebarTooltip.label}</span>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic Ambient Luxury Warm Beige & Wood Glow Layers */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-32 -left-32 w-[34rem] h-[34rem] bg-[#DECCA8]/75 rounded-full blur-[130px]" />
@@ -2645,9 +2698,14 @@ export const AdminDashboardPage: React.FC = () => {
         <div className="pb-2.5 border-b border-[#DFD2C0]/80 overflow-hidden">
           <button
             type="button"
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            onClick={() => {
+              setIsSidebarCollapsed(!isSidebarCollapsed);
+              setHoveredSidebarTooltip(null);
+            }}
+            onMouseEnter={(e) => handleSidebarItemMouseEnter(e, isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar')}
+            onMouseLeave={handleSidebarItemMouseLeave}
             className="flex items-center gap-2 group cursor-pointer text-left w-full p-1 rounded-xl hover:bg-[#E5D7C5]/60 transition-colors duration-200"
-            title={isSidebarCollapsed ? "Click to expand sidebar" : "Click to collapse sidebar"}
+            title={!isSidebarCollapsed ? "Click to collapse sidebar" : undefined}
           >
             <div className="relative flex-shrink-0">
               <img
@@ -2696,8 +2754,13 @@ export const AdminDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
@@ -2742,8 +2805,13 @@ export const AdminDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
@@ -2791,8 +2859,13 @@ export const AdminDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
@@ -2838,8 +2911,118 @@ export const AdminDashboardPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
-                  title={item.label}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* SECTION: SYSTEM & GOVERNANCE */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  System & Governance
+                </div>
+              )}
+            </div>
+
+            {[
+              { id: 'audit', label: 'Audit & Activity Logs', icon: FileCheck2 },
+              { id: 'export_excel', label: 'Export System Report', icon: Download, isAction: true, onClick: handleExportDatabaseExcel }
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    if (item.isAction && item.onClick) {
+                      item.onClick();
+                    } else {
+                      setActiveTab(item.id as any);
+                    }
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* SECTION: PLATFORM OVERSIGHT & INTELLIGENCE (Strictly Appended at End) */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Platform Oversight
+                </div>
+              )}
+            </div>
+
+            {[
+              { id: 'reviews', label: 'Reviews & Feedback', icon: Star },
+              { id: 'carrier_governance', label: 'Freight & Agreements', icon: FileSpreadsheet },
+              { id: 'returns_cancellations', label: 'Returns & Cancellations', icon: Undo2 },
+              { id: 'machines', label: 'Machinery & Equipment', icon: Cpu },
+              { id: 'ai_logs', label: 'AI Intelligence Logs', icon: Sparkles }
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
@@ -2942,6 +3125,12 @@ export const AdminDashboardPage: React.FC = () => {
                   {activeTab === 'returns' && 'Returns & Replacements'}
                   {activeTab === 'communication' && 'Communications'}
                   {activeTab === 'reports' && 'Business Reports'}
+                  {activeTab === 'audit' && 'System Audit & Activity Logs'}
+                  {activeTab === 'reviews' && 'Customer Reviews & Feedback'}
+                  {activeTab === 'carrier_governance' && 'Logistics Agreements & Freight'}
+                  {activeTab === 'returns_cancellations' && 'Returns, Replacements & Cancellations'}
+                  {activeTab === 'machines' && 'Workshop Machinery & Equipment'}
+                  {activeTab === 'ai_logs' && 'AI Intelligence & Execution Logs'}
                 </h1>
                 <p className="text-xs text-[#7A6350] mt-1 font-medium">
                   {activeTab === 'overview' && 'Live store overview, revenue metrics, and order operations.'}
@@ -2963,6 +3152,12 @@ export const AdminDashboardPage: React.FC = () => {
                   {activeTab === 'fleet' && 'Manage delivery fleet vehicles and driver allocations.'}
                   {activeTab === 'carriers' && 'Manage 3PL courier partners and shipping methods.'}
                   {activeTab === 'roles' && 'Configure role-based access permissions.'}
+                  {activeTab === 'audit' && 'Comprehensive live tracking of administrative changes, security actions, and user events.'}
+                  {activeTab === 'reviews' && 'Monitor verified buyer reviews, ratings distribution, and moderate storefront feedback.'}
+                  {activeTab === 'carrier_governance' && 'Carrier partner contracts, tariff rate cards, freight settlements, and driver email requests.'}
+                  {activeTab === 'returns_cancellations' && 'Audit customer return claims, replacement dispatches, and order cancellation ledger.'}
+                  {activeTab === 'machines' && 'Factory floor CNC machinery, operational availability, and preventive maintenance records.'}
+                  {activeTab === 'ai_logs' && 'System-wide AI execution logs for computer vision, 2D sheet cutting optimizer, and material inspections.'}
                   {activeTab === 'requests' && 'Review custom build inquiries and quotations.'}
                   {activeTab === 'production' && 'Track workshop production and active jobs.'}
                   {activeTab === 'fabrication' && 'Manage fabrication and joinery milestones.'}
@@ -8693,6 +8888,275 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
                 );
               })()}
+
+              {/* TAB: ROLES & PERMISSIONS MANAGEMENT */}
+              {activeTab === 'roles' && (
+                <div className="relative z-10 space-y-6 animate-fadeIn">
+                  {/* Top Bar: Title & Action */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 p-5 rounded-3xl border border-[#E2D7CB] shadow-xs">
+                    <div>
+                      <h3 className="text-base font-black text-[#2C241D] flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-[#38A132]" />
+                        <span>Role-Based Access Control & Granted Capabilities</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6350] font-medium mt-0.5">
+                        Manage granular privileges, executive overrides, and operational permissions by account.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthorityEmail('');
+                        setSelectedCapabilities([]);
+                        setIsFullAdminChecked(false);
+                        setIsAuthorityModalOpen(true);
+                      }}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Grant Authority & Permissions</span>
+                    </button>
+                  </div>
+
+                  {/* Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                      <span className="text-[10px] font-black uppercase text-[#7A6350] tracking-wider block">Configured Capabilities</span>
+                      <div className="text-2xl font-black text-[#2C241D]">{CAPABILITY_DEFINITIONS.length} Privileges</div>
+                      <span className="text-[10px] font-bold text-[#38A132] block">Active Security System</span>
+                    </div>
+
+                    <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                      <span className="text-[10px] font-black uppercase text-[#7A6350] tracking-wider block">Custom Account Authorities</span>
+                      <div className="text-2xl font-black text-[#38A132]">{userAuthoritiesList.length} Accounts</div>
+                      <span className="text-[10px] font-bold text-[#7A6350] block">Granular Permission Rules</span>
+                    </div>
+
+                    <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                      <span className="text-[10px] font-black uppercase text-[#7A6350] tracking-wider block">Standard Roles</span>
+                      <div className="text-2xl font-black text-[#2C241D]">5 System Roles</div>
+                      <span className="text-[10px] font-bold text-[#7A6350] block">Admin, Retail, Production, Artisan, Carrier</span>
+                    </div>
+                  </div>
+
+                  {/* Capabilities Reference Matrix */}
+                  <div className="bg-white/80 backdrop-blur-xl p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-4">
+                    <h4 className="text-xs font-black uppercase text-[#7A6350] tracking-wider">
+                      System Capabilities Reference
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {CAPABILITY_DEFINITIONS.map((cap) => (
+                        <div key={cap.key} className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-xs text-[#2C241D]">
+                            <Key className="w-3.5 h-3.5 text-[#38A132]" />
+                            <span>{cap.label}</span>
+                          </div>
+                          <p className="text-[10px] text-[#7A6350] leading-snug font-medium">
+                            {cap.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Granted Authorities Table */}
+                  <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden space-y-3 p-5 sm:p-6">
+                    <h4 className="text-xs font-black uppercase text-[#7A6350] tracking-wider">
+                      Granted User Authorities & Overrides ({userAuthoritiesList.length})
+                    </h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-[#E2D7CB] text-[11px] font-black uppercase text-[#7A6350]">
+                            <th className="py-3 px-4">Account Email</th>
+                            <th className="py-3 px-4">Granted Capabilities</th>
+                            <th className="py-3 px-4">Last Updated</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E2D7CB]/60">
+                          {userAuthoritiesList.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="py-8 text-center text-[#7A6350] font-bold">
+                                No custom account overrides set. Default role-based permissions apply to all users.
+                              </td>
+                            </tr>
+                          ) : (
+                            userAuthoritiesList.map((auth) => (
+                              <tr key={auth.email} className="hover:bg-[#FAF7F2] transition-colors">
+                                <td className="py-3.5 px-4 font-mono font-bold text-[#2C241D]">
+                                  {auth.email}
+                                </td>
+                                <td className="py-3.5 px-4">
+                                  <div className="flex flex-wrap gap-1">
+                                    {auth.capabilities.map((capKey) => {
+                                      const cap = CAPABILITY_DEFINITIONS.find(c => c.key === capKey);
+                                      return (
+                                        <span
+                                          key={capKey}
+                                          className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-[#38A132]/15 text-[#2C6B27] border border-[#38A132]/30"
+                                        >
+                                          {cap ? cap.label : capKey}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                                <td className="py-3.5 px-4 text-[#7A6350] font-mono text-[11px]">
+                                  {auth.assignedDate || 'Active'}
+                                </td>
+                                <td className="py-3.5 px-4 text-right">
+                                  <button
+                                    onClick={() => {
+                                      setAuthorityEmail(auth.email);
+                                      setSelectedCapabilities(auth.capabilities);
+                                      setIsFullAdminChecked(auth.capabilities.length === CAPABILITY_DEFINITIONS.length);
+                                      setIsAuthorityModalOpen(true);
+                                    }}
+                                    className="px-3 py-1.5 bg-[#FAF7F2] hover:bg-[#EFE7DE] border border-[#E2D7CB] rounded-lg text-xs font-bold text-[#2C241D] transition-colors cursor-pointer"
+                                  >
+                                    Edit Authority
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: SYSTEM AUDIT & ACTIVITY LOGS */}
+              {activeTab === 'audit' && (
+                <div className="relative z-10 space-y-6 animate-fadeIn">
+                  {/* Top Bar: Title & Refresh */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 p-5 rounded-3xl border border-[#E2D7CB] shadow-xs">
+                    <div>
+                      <h3 className="text-base font-black text-[#2C241D] flex items-center gap-2">
+                        <FileCheck2 className="w-5 h-5 text-[#38A132]" />
+                        <span>System Audit & Security Activity Ledger</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6350] font-medium mt-0.5">
+                        Real-time chronological log of administrative events, data modifications, and system authorizations.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const logs = await fetchAuditLogsDB(100);
+                          setAuditLogsList(logs || []);
+                        }}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-[#FAF7F2] hover:bg-[#EFE7DE] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] transition-all cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-[#38A132]" />
+                        <span>Refresh Logs</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleExportDatabaseExcel}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-[#2C2016] hover:bg-[#1A130C] text-[#FAF5ED] rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
+                      >
+                        <Download className="w-3.5 h-3.5 text-[#DFCDBD]" />
+                        <span>Export Excel</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Audit Logs Table */}
+                  <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden p-5 sm:p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-[#7A6350] tracking-wider">
+                        Live Event Records ({auditLogsList.length})
+                      </span>
+                      <span className="text-[11px] font-bold text-[#38A132] bg-[#38A132]/10 border border-[#38A132]/30 px-2.5 py-0.5 rounded-full">
+                        ● System Active
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-[#E2D7CB] text-[11px] font-black uppercase text-[#7A6350]">
+                            <th className="py-3 px-4">Timestamp</th>
+                            <th className="py-3 px-4">Event / Action</th>
+                            <th className="py-3 px-4">Operator / User</th>
+                            <th className="py-3 px-4">Entity</th>
+                            <th className="py-3 px-4">Details</th>
+                            <th className="py-3 px-4 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E2D7CB]/60">
+                          {auditLogsList.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="py-8 text-center text-[#7A6350] font-bold">
+                                No audit log events recorded yet. System activities will appear here automatically.
+                              </td>
+                            </tr>
+                          ) : (
+                            auditLogsList.map((log: any, idx: number) => (
+                              <tr key={log.log_id || idx} className="hover:bg-[#FAF7F2] transition-colors">
+                                <td className="py-3 px-4 text-[#7A6350] font-mono text-[11px] whitespace-nowrap">
+                                  {log.created_at ? new Date(log.created_at).toLocaleString() : 'Recent'}
+                                </td>
+                                <td className="py-3 px-4 font-bold text-[#2C241D]">
+                                  <span className="px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[11px]">
+                                    {log.action || log.event || 'System Event'}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 font-mono text-[#2C241D] text-[11px]">
+                                  {log.user_email || log.user_name || log.operator || 'Admin System'}
+                                </td>
+                                <td className="py-3 px-4 text-[#7A6350] font-medium">
+                                  {log.target_table || log.entity_type || 'Platform'}
+                                </td>
+                                <td className="py-3 px-4 text-[#5C4D3E] max-w-xs truncate">
+                                  {log.description || log.details || (typeof log.changes === 'object' ? JSON.stringify(log.changes) : String(log.changes || 'Normal operation'))}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                    VERIFIED
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: CUSTOMER REVIEWS & FEEDBACK */}
+              {activeTab === 'reviews' && (
+                <AdminReviewsSection />
+              )}
+
+              {/* TAB: LOGISTICS AGREEMENTS & FREIGHT SETTLEMENTS */}
+              {activeTab === 'carrier_governance' && (
+                <AdminCarrierGovernanceSection />
+              )}
+
+              {/* TAB: RETURNS, REPLACEMENTS & CANCELLATIONS */}
+              {activeTab === 'returns_cancellations' && (
+                <AdminReturnsCancellationsSection />
+              )}
+
+              {/* TAB: WORKSHOP MACHINERY & MAINTENANCE */}
+              {activeTab === 'machines' && (
+                <AdminMachinesSection />
+              )}
+
+              {/* TAB: AI INTELLIGENCE & EXECUTION LOGS */}
+              {activeTab === 'ai_logs' && (
+                <AdminAILogsSection />
+              )}
             </div>
           </main>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, ArrowRight } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { googleLoginUser } from '../../services/api';
 import { signInWithGoogleFirebase } from '../../services/firebase';
@@ -18,11 +18,11 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
 }) => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
-  const [googleEmail, setGoogleEmail] = useState('');
-  const [showEmailInput, setShowEmailInput] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleFirebaseGoogleSignIn = async () => {
     setIsLoading(true);
+    setErrorMessage(null);
 
     try {
       // 1. Authenticate with official Google OAuth / Firebase Popup Window
@@ -55,55 +55,38 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       }
     } catch (err: any) {
       console.warn('Google Sign-In notice:', err);
-      // Seamlessly show Google Email Textbox instead of localhost popup error prompts!
-      setShowEmailInput(true);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      let msg = 'Google Sign-In failed. Please try again.';
+      const rawMsg = err?.message || '';
+      const code = err?.code || '';
 
-  const handleDirectEmailGoogleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!googleEmail || !googleEmail.includes('@')) return;
-
-    setIsLoading(true);
-    try {
-      const cleanEmail = googleEmail.trim().toLowerCase();
-      const derivedName = cleanEmail.split('@')[0].split('.')[0];
-      const capitalizedName = derivedName.charAt(0).toUpperCase() + derivedName.slice(1);
-
-      const res = await googleLoginUser({
-        email: cleanEmail,
-        full_name: capitalizedName,
-      });
-
-      if (res?.access_token) {
-        markSessionActive();
-        localStorage.setItem('access_token', res.access_token);
-        localStorage.setItem('user', JSON.stringify(res.user));
-        window.dispatchEvent(new Event('storage'));
+      if (code === 'auth/popup-closed-by-user' || rawMsg.includes('popup-closed') || rawMsg.includes('cancelled')) {
+        msg = 'Google Sign-In was cancelled.';
+      } else if (code === 'auth/popup-blocked' || rawMsg.includes('popup-blocked')) {
+        msg = 'Sign-in popup was blocked by your browser. Please allow popups for this site.';
+      } else if (code === 'auth/unauthorized-domain' || rawMsg.includes('unauthorized-domain')) {
+        msg = 'This domain is not authorized for Google Sign-In. Please add it to Firebase Console Authorized Domains.';
+      } else if (
+        code === 'auth/api-key-not-valid' ||
+        code === 'auth/invalid-api-key' ||
+        rawMsg.includes('api-key-not-valid') ||
+        rawMsg.includes('invalid-api-key')
+      ) {
+        msg = 'Google Sign-In is temporarily unavailable. Please ensure Firebase environment variables are configured.';
+      } else if (code === 'auth/operation-not-allowed' || rawMsg.includes('operation-not-allowed')) {
+        msg = 'Google Sign-In is disabled. Please enable Google provider in the Firebase Console.';
+      } else if (code === 'auth/network-request-failed' || rawMsg.includes('network-request-failed')) {
+        msg = 'Network error during Google Sign-In. Please check your internet connection.';
+      } else if (rawMsg) {
+        msg = rawMsg;
       }
-
-      const searchParams = new URLSearchParams(window.location.search);
-      const redirectUrl = searchParams.get('redirect');
-
-      if (onSuccess) {
-        onSuccess();
-      } else if (redirectUrl && redirectUrl.startsWith('/')) {
-        navigate(redirectUrl);
-      } else {
-        const targetPath = getRoleDashboardPath(res?.user);
-        navigate(targetPath);
-      }
-    } catch (err: any) {
-      console.warn('Direct Google email sign in error:', err);
+      setErrorMessage(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="w-full space-y-3">
+    <div className="w-full space-y-2">
       <button
         type="button"
         onClick={handleFirebaseGoogleSignIn}
@@ -140,28 +123,10 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         )}
       </button>
 
-      {/* Direct Google Email Textbox Input */}
-      {showEmailInput && (
-        <form onSubmit={handleDirectEmailGoogleSignIn} className="space-y-2 pt-1 animate-fadeIn">
-          <div className="relative">
-            <input
-              type="email"
-              placeholder="Enter Google Email..."
-              value={googleEmail}
-              onChange={(e) => setGoogleEmail(e.target.value)}
-              required
-              className="w-full py-2.5 pl-3.5 pr-28 rounded-xl border border-white/75 bg-white/60 backdrop-blur-md text-[#2C241D] font-medium text-xs focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all truncate shadow-inner"
-            />
-            <button
-              type="submit"
-              disabled={isLoading || !googleEmail.includes('@')}
-              className="absolute right-1.5 top-1.5 bottom-1.5 px-3 rounded-lg bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-bold flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <span>Continue</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-        </form>
+      {errorMessage && (
+        <p className="text-[11px] text-rose-700 font-bold text-center animate-fadeIn">
+          {errorMessage}
+        </p>
       )}
     </div>
   );

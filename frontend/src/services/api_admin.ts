@@ -230,3 +230,235 @@ export const exportDatabaseExcel = async (): Promise<void> => {
   window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
 };
+
+// --- 1. Customer Reviews ---
+export const fetchAdminReviewsDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/reviews`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching admin reviews:', err);
+    return [];
+  }
+};
+
+export const deleteAdminReviewDB = async (reviewId: number) => {
+  const res = await fetch(`${API_BASE_URL}/api/admin/reviews/${reviewId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to delete review' }));
+    throw new Error(err.detail || 'Failed to delete review');
+  }
+  return await res.json();
+};
+
+// --- 2. Carrier Agreements, Rate Cards, Settlements & Email Change Requests ---
+export const fetchAdminCarrierAgreementsDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/carrier-agreements`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching carrier agreements:', err);
+    return [];
+  }
+};
+
+export const createAdminCarrierAgreementDB = async (payload: any) => {
+  const res = await fetch(`${API_BASE_URL}/api/admin/carrier-agreements`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to create agreement' }));
+    throw new Error(err.detail || 'Failed to create agreement');
+  }
+  return await res.json();
+};
+
+export const fetchAdminRateCardsDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/rate-cards`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching rate cards:', err);
+    return [];
+  }
+};
+
+export const updateAdminRateCardDB = async (rateId: number, payload: any) => {
+  const res = await fetch(`${API_BASE_URL}/api/admin/rate-cards/${rateId}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update rate card' }));
+    throw new Error(err.detail || 'Failed to update rate card');
+  }
+  return await res.json();
+};
+
+export const fetchAdminCarrierSettlementsDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/carrier-settlements`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching carrier settlements:', err);
+    return [];
+  }
+};
+
+export const updateAdminSettlementStatusDB = async (settlementId: number, status: string) => {
+  const res = await fetch(`${API_BASE_URL}/api/admin/carrier-settlements/${settlementId}/status`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update settlement' }));
+    throw new Error(err.detail || 'Failed to update settlement');
+  }
+  return await res.json();
+};
+
+export const fetchAdminPersonnelEmailChangeRequestsDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/personnel-email-change-requests`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching driver email change requests:', err);
+    return [];
+  }
+};
+
+export const reviewAdminPersonnelEmailChangeRequestDB = async (requestId: number, action: 'APPROVE' | 'REJECT', rejection_reason?: string) => {
+  const res = await fetch(`${API_BASE_URL}/api/admin/personnel-email-change-requests/${requestId}/review`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ action, rejection_reason })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to review email change request' }));
+    throw new Error(err.detail || 'Failed to review email change request');
+  }
+  return await res.json();
+};
+
+// --- 3. Order Returns & Cancellations ---
+export const fetchAdminOrderReturnsDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/orders/returns/all`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching return requests:', err);
+    return [];
+  }
+};
+
+export const updateAdminReturnStatusDB = async (returnId: number, payload: { status: string; refund_status?: string; notes?: string }) => {
+  const res = await fetch(`${API_BASE_URL}/api/orders/returns/${returnId}/status`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update return status' }));
+    throw new Error(err.detail || 'Failed to update return status');
+  }
+  return await res.json();
+};
+
+export const fetchAdminOrderCancellationsDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/cancellations`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching order cancellations:', err);
+    return [];
+  }
+};
+
+// --- 4. Workshop Machinery & Equipment ---
+export const fetchAdminMachinesDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/machines`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching machines:', err);
+    return [];
+  }
+};
+
+export const createAdminMachineDB = async (payload: { machine_name: string; category: string }) => {
+  const res = await fetch(`${API_BASE_URL}/api/machines`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to add machine' }));
+    throw new Error(err.detail || 'Failed to add machine');
+  }
+  return await res.json();
+};
+
+export const updateAdminMachineStatusDB = async (machineId: number, status: string) => {
+  const res = await fetch(`${API_BASE_URL}/api/machines/${machineId}/status`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update machine status' }));
+    throw new Error(err.detail || 'Failed to update machine status');
+  }
+  return await res.json();
+};
+
+export const fetchAdminMachineMaintenanceDB = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/machines/maintenance/all`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching machine maintenance logs:', err);
+    return [];
+  }
+};
+
+export const addAdminMachineMaintenanceDB = async (machineId: number, payload: { description: string; performed_by: string; maintenance_type: string }) => {
+  const res = await fetch(`${API_BASE_URL}/api/machines/${machineId}/maintenance`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to log maintenance' }));
+    throw new Error(err.detail || 'Failed to log maintenance');
+  }
+  return await res.json();
+};
+
+// --- 5. AI System Execution Logs ---
+export const fetchAdminAILogsDB = async (limit: number = 100) => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/ai-logs?limit=${limit}`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching AI logs:', err);
+    return [];
+  }
+};
+

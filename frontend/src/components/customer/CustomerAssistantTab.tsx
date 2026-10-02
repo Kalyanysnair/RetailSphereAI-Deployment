@@ -108,10 +108,24 @@ export const CustomerAssistantTab: React.FC = () => {
     setIsLoading(true);
 
     try {
+      const token = localStorage.getItem('token');
+      const historyPayload = messages.slice(-6).map((m) => ({
+        sender: m.sender,
+        text: m.text,
+      }));
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch('/api/ai/customer-assistant', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText }),
+        headers,
+        body: JSON.stringify({
+          message: userText,
+          history: historyPayload,
+        }),
       });
 
       if (res.ok) {
@@ -119,7 +133,7 @@ export const CustomerAssistantTab: React.FC = () => {
         const botMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           sender: 'bot',
-          text: data.response || "I'm here to help! Feel free to ask about our furniture, materials, custom studio, or services.",
+          text: data.response || "I'm here to help! Feel free to ask about RetailSphere AI furniture, bespoke custom designs, precision timber fabrication, or on-site services.",
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           suggestions: data.suggestions || [],
           products: data.products || [],
@@ -130,18 +144,18 @@ export const CustomerAssistantTab: React.FC = () => {
         const botMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           sender: 'bot',
-          text: "I am having trouble connecting right now. Please check back in a moment or explore our **SHOP**, **CREATE**, or **SERVICES** sections.",
+          text: "I'm sorry, I couldn't process that request right now. Please try asking again or explore our catalog, custom studio, and on-site services.",
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          suggestions: ["Show popular furniture", "How to use my own wood?"]
+          suggestions: ["Browse Ready-Made Furniture", "Design Custom Furniture", "Book On-Site Carpenter"]
         };
         setMessages((prev) => [...prev, botMsg]);
       }
     } catch (err) {
-      console.error('Chatbot API error:', err);
+      console.error('Chatbot request issue:', err);
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         sender: 'bot',
-        text: "I encountered a network issue. Please ensure your backend is active and try again.",
+        text: "I'm having trouble connecting right now. Please try again in a moment.",
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, botMsg]);
@@ -213,11 +227,15 @@ export const CustomerAssistantTab: React.FC = () => {
     const lines = text.split('\n');
     return (
       <div className="space-y-1.5">
-        {lines.map((line, lIdx) => {
-          if (!line.trim()) return <div key={lIdx} className="h-1" />;
+        {lines.map((rawLine, lIdx) => {
+          const trimmed = rawLine.trim();
+          if (!trimmed) return <div key={lIdx} className="h-1" />;
           
+          const isBullet = trimmed.startsWith('• ') || trimmed.startsWith('- ') || trimmed.startsWith('* ');
+          const lineContent = isBullet ? trimmed.replace(/^[•\-*]\s+/, '') : rawLine;
+
           // Parse bold parts
-          const parts = line.split(/(\*\*.*?\*\*)/g);
+          const parts = lineContent.split(/(\*\*.*?\*\*)/g);
           const renderedParts = parts.map((part, pIdx) => {
             if (part.startsWith('**') && part.endsWith('**')) {
               return (
@@ -229,7 +247,7 @@ export const CustomerAssistantTab: React.FC = () => {
             return part;
           });
 
-          if (line.startsWith('• ') || line.startsWith('- ')) {
+          if (isBullet) {
             return (
               <div key={lIdx} className="flex items-start gap-1.5 pl-1">
                 <span className="text-[#38A132] font-bold text-sm leading-tight">•</span>

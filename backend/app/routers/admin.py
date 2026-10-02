@@ -2404,6 +2404,150 @@ def update_settlement_status(settlement_id: int, payload: dict, db: Session = De
     return {"message": f"Settlement #{settlement_id} status updated to {new_st}", "settlement": s}
 
 
+# --- REVIEWS & CUSTOMER FEEDBACK VIEW & MODERATION ---
+
+@router.get("/reviews")
+def list_admin_product_reviews(db: Session = Depends(get_db)):
+    reviews = db.query(models.Review).order_by(models.Review.review_date.desc()).all()
+    results = []
+    for r in reviews:
+        c_name = "Valued Customer"
+        c_email = ""
+        if r.customer and r.customer.user:
+            c_name = r.customer.user.full_name or r.customer.user.username
+            c_email = r.customer.user.email or ""
+        
+        prod = r.product
+        results.append({
+            "review_id": r.review_id,
+            "product_id": r.product_id,
+            "product_name": prod.product_name if prod else f"Product #{r.product_id}",
+            "product_image": prod.images[0].image_url if (prod and prod.images) else None,
+            "product_category": prod.category.category_name if (prod and prod.category) else "Furniture",
+            "customer_id": r.customer_id,
+            "customer_name": c_name,
+            "customer_email": c_email,
+            "rating": r.rating,
+            "review": r.review or "",
+            "review_date": r.review_date.isoformat() if r.review_date else None,
+            "verified_purchase": True
+        })
+    return results
+
+
+@router.delete("/reviews/{review_id}")
+def delete_admin_product_review(review_id: int, db: Session = Depends(get_db)):
+    r = db.query(models.Review).filter(models.Review.review_id == review_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Review not found.")
+    db.delete(r)
+    db.commit()
+    return {"message": f"Review #{review_id} removed successfully."}
+
+
+# --- DRIVER / PERSONNEL EMAIL CHANGE REQUESTS ---
+
+@router.get("/personnel-email-change-requests")
+def list_admin_personnel_email_change_requests(db: Session = Depends(get_db)):
+    requests = db.query(models.PersonnelEmailChangeRequest).order_by(models.PersonnelEmailChangeRequest.request_id.desc()).all()
+    results = []
+    for r in requests:
+        results.append({
+            "request_id": r.request_id,
+            "personnel_id": r.personnel_id,
+            "personnel_name": r.personnel.name if r.personnel else f"Driver #{r.personnel_id}",
+            "carrier_id": r.carrier_id,
+            "carrier_name": r.carrier.carrier_name if r.carrier else "Carrier Partner",
+            "current_email": r.current_email,
+            "requested_email": r.requested_email,
+            "reason": r.reason,
+            "status": r.status,
+            "rejection_reason": r.rejection_reason,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None
+        })
+    return results
+
+
+@router.put("/personnel-email-change-requests/{request_id}/review")
+def review_admin_personnel_email_change_request(request_id: int, payload: dict, db: Session = Depends(get_db)):
+    req_obj = db.query(models.PersonnelEmailChangeRequest).filter(models.PersonnelEmailChangeRequest.request_id == request_id).first()
+    if not req_obj:
+        raise HTTPException(status_code=404, detail="Request not found.")
+    
+    action = payload.get("action", "").upper()
+    if action not in ["APPROVE", "REJECT"]:
+        raise HTTPException(status_code=400, detail="Action must be APPROVE or REJECT.")
+    
+    if action == "APPROVE":
+        target_email = req_obj.requested_email.strip().lower()
+        existing = db.query(models.User).filter(models.User.email == target_email).first()
+        personnel = req_obj.personnel
+        if existing and (not personnel or existing.user_id != personnel.user_id):
+            raise HTTPException(status_code=400, detail="Target email is already used by another account.")
+        
+        if personnel:
+            personnel.email = target_email
+            if personnel.user:
+                personnel.user.email = target_email
+                if personnel.user.username == req_obj.current_email:
+                    personnel.user.username = target_email
+        
+        req_obj.status = "APPROVED"
+        req_obj.updated_at = datetime.utcnow()
+        db.commit()
+        return {"message": f"Driver email updated to {target_email} successfully.", "status": "APPROVED"}
+    else:
+        req_obj.status = "REJECTED"
+        req_obj.rejection_reason = payload.get("rejection_reason", "Declined by Administrator.")
+        req_obj.updated_at = datetime.utcnow()
+        db.commit()
+        return {"message": "Email change request rejected.", "status": "REJECTED"}
+
+
+# --- ORDER CANCELLATIONS LEDGER ---
+
+@router.get("/cancellations")
+def list_admin_order_cancellations(db: Session = Depends(get_db)):
+    cancellations = db.query(models.OrderCancellation).order_by(models.OrderCancellation.cancelled_at.desc()).all()
+    results = []
+    for c in cancellations:
+        ord_obj = c.order
+        cust = ord_obj.customer if ord_obj else None
+        cust_user = cust.user if cust else None
+        results.append({
+            "cancellation_id": c.cancellation_id,
+            "order_id": c.order_id,
+            "order_number": f"RET-{c.order_id:06d}",
+            "customer_name": cust_user.full_name if cust_user else (ord_obj.customer_name if ord_obj else "Customer"),
+            "customer_email": cust_user.email if cust_user else (ord_obj.customer_email if ord_obj else ""),
+            "total_amount": float(ord_obj.total_amount) if ord_obj and ord_obj.total_amount else 0.0,
+            "payment_status": ord_obj.payment_status if ord_obj else "Cancelled",
+            "cancelled_by_role": c.cancelled_by_role or "Customer",
+            "reason": c.reason or "Customer cancellation request",
+            "cancelled_at": c.cancelled_at.isoformat() if c.cancelled_at else None
+        })
+    return results
+
+
+# --- AI EXECUTION & INTELLIGENCE LOGS ---
+
+@router.get("/ai-logs")
+def list_admin_ai_execution_logs(limit: int = 100, db: Session = Depends(get_db)):
+    logs = db.query(models.AIAnalysisLog).order_by(models.AIAnalysisLog.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "log_id": l.log_id,
+            "analysis_type": l.analysis_type,
+            "input_payload": l.input_payload,
+            "output_result": l.output_result,
+            "created_at": l.created_at.isoformat() if l.created_at else None
+        }
+        for l in logs
+    ]
+
+
+
 
 
 

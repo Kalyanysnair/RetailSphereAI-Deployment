@@ -114,18 +114,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
       });
     } catch (err: any) {
       const msg = err?.message || 'Registration failed. Please try again.';
-      
-      if (msg.toLowerCase().includes('failed to fetch')) {
-        console.warn('Backend server offline. Redirecting to login in demo mode.');
-        navigate('/login', {
-          state: {
-            registeredEmail: credentials.email,
-            message: 'Account created successfully! Please login with your credentials.',
-          },
-        });
-      } else {
-        setErrors({ general: msg });
-      }
+      setErrors({ general: msg });
     } finally {
       setInternalLoading(false);
     }

@@ -264,6 +264,14 @@ export const FabricationTab: React.FC = () => {
   const [optimizationResult, setOptimizationResult] = useState<any>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [processingActionId, setProcessingActionId] = useState<number | null>(null);
+  const [expandedStepsMap, setExpandedStepsMap] = useState<Record<number, boolean>>({});
+
+  const toggleCardSteps = (id: number) => {
+    setExpandedStepsMap((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
 
   const fetchFabrications = async (showLoading = true) => {
     try {
@@ -503,88 +511,79 @@ export const FabricationTab: React.FC = () => {
             const quotePrice = Number(r.estimated_price) || 0;
             const finalTotalAmount = quotePrice + totalLogistics;
             const isPaid = r.payment_status === 'Paid';
-            const pickupFulfillment = (r.fulfillments || []).find((f) => f.job_type === 'FABRICATION_PICKUP');
-            const returnFulfillment = (r.fulfillments || []).find((f) => f.job_type === 'FABRICATION_RETURN');
+            const isStepsExpanded = Boolean(expandedStepsMap[r.fabrication_id]);
 
             return (
-              <div key={r.fabrication_id} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm hover:shadow-xl transition-all space-y-4 flex flex-col justify-between">
+              <div
+                key={r.fabrication_id}
+                className="bg-white border-2 border-[#E2D7CB] hover:border-[#38A132] rounded-3xl p-4 sm:p-5 shadow-xs hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5 space-y-3.5 flex flex-col justify-between"
+              >
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-                    <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
+                  {/* Header Strip */}
+                  <div className="flex items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2.5">
+                    <span className="font-mono text-[10.5px] font-black text-[#38A132] bg-[#38A132]/10 px-2.5 py-1 rounded-lg border border-[#38A132]/25 shadow-2xs">
                       FAB-#{r.fabrication_id}
                     </span>
-                    <span className={`${getStatusBadgeColor(r.status)} text-[10px] font-extrabold px-2.5 py-1 rounded-full border`}>
+                    <span className={`${getStatusBadgeColor(r.status)} text-[10.5px] font-black px-2.5 py-0.5 rounded-full border shadow-2xs flex items-center gap-1`}>
                       {isPaid ? `Paid ✓ (₹${finalTotalAmount.toLocaleString('en-IN')})` : formatStatusLabel(r.status)}
                     </span>
                   </div>
 
-                  <div>
-                    <h4 className="text-sm font-extrabold text-[#2C241D]">{r.service_type}</h4>
-                    <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5">Source: {r.material_source}</p>
-                  </div>
-
-                  <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs space-y-2 font-medium">
-                    <div className="flex justify-between">
-                      <span className="text-[#7A6C5E]">Dimensions:</span>
-                      <span className="font-bold text-[#2C241D]">{r.dimensions}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[#7A6C5E]">Quantity:</span>
-                      <span className="font-bold text-[#2C241D]">{r.quantity} pcs</span>
-                    </div>
-                    {quotePrice > 0 && (
-                      <>
-                        <div className="flex justify-between pt-1 border-t border-[#E2D7CB]">
-                          <span className="text-[#7A6C5E]">Quote Price:</span>
-                          <span className="font-bold text-[#2C241D]">₹{quotePrice.toLocaleString('en-IN')}</span>
-                        </div>
-                        {totalLogistics > 0 && (
-                          <div className="flex justify-between text-[11px] text-[#7A6C5E]">
-                            <span>Logistics & Transport:</span>
-                            <span className="font-bold text-[#5C4E42]">
-                              +₹{totalLogistics.toLocaleString('en-IN')} {hasPickup && hasReturn ? `(Pickup ₹${pickupCost} + Delivery ₹${returnCost})` : hasPickup ? `(Pickup ₹${pickupCost})` : `(Delivery ₹${returnCost})`}
-                            </span>
-                          </div>
-                        )}
-                        <div className={`flex justify-between items-center pt-2 border-t-2 ${isPaid ? 'border-[#38A132]/30 bg-[#38A132]/10 -mx-3 -mb-3 p-3 rounded-b-2xl' : 'border-[#E2D7CB]'}`}>
-                          <span className="font-black text-xs text-[#2C241D] flex items-center gap-1">
-                            {isPaid ? (
-                              <span className="text-[#2E8B29] font-black flex items-center gap-1">
-                                ✓ Total Amount Paid:
-                              </span>
-                            ) : (
-                              'Final Total Amount:'
-                            )}
-                          </span>
-                          <span className={`font-black text-sm ${isPaid ? 'text-[#2E8B29]' : 'text-[#38A132]'}`}>
-                            ₹{finalTotalAmount.toLocaleString('en-IN')}
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Transportation Arrangements Info */}
-                  <div className="bg-amber-50/50 p-2.5 rounded-xl border border-amber-200/60 text-[11px] space-y-1 text-[#2C241D]">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#7A6C5E] flex items-center gap-1 font-bold">
-                        <Truck className="w-3 h-3 text-[#48A63E]" /> Material Arrival:
-                      </span>
-                      <span className="font-extrabold">
-                        {hasPickup ? `Pickup (₹${pickupCost})` : 'Self-Arranged (Bring)'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#7A6C5E] flex items-center gap-1 font-bold">
-                        <PackageCheck className="w-3 h-3 text-[#48A63E]" /> After Work:
-                      </span>
-                      <span className="font-extrabold">
-                        {hasReturn ? `Delivery (₹${returnCost})` : 'Self-Collection'}
+                  {/* Title & Source Tag */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-base font-black text-[#1C1814] tracking-tight leading-snug">
+                        {r.service_type}
+                      </h4>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#6B5C4D] bg-[#FAF8F5] border border-[#E2D7CB] px-2 py-0.5 rounded-md mt-1">
+                        Source: {r.material_source}
                       </span>
                     </div>
                   </div>
 
-                  {/* Live Manufacturing Stage Progress & Procedural Step Breakdown */}
+                  {/* Compact 2x2 Specs Grid */}
+                  <div className="grid grid-cols-2 gap-2 bg-[#FAF8F5] p-2.5 rounded-2xl border border-[#E2D7CB] text-xs">
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]/70 shadow-2xs">
+                      <span className="text-[9.5px] font-black text-[#7A6C5E] uppercase tracking-wider block">
+                        Dimensions
+                      </span>
+                      <span className="font-black text-[#1C1814] text-xs truncate block mt-0.5" title={r.dimensions}>
+                        {r.dimensions}
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]/70 shadow-2xs">
+                      <span className="text-[9.5px] font-black text-[#7A6C5E] uppercase tracking-wider block">
+                        Quantity
+                      </span>
+                      <span className="font-black text-[#1C1814] text-xs block mt-0.5">
+                        {r.quantity} pcs
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]/70 shadow-2xs">
+                      <span className="text-[9.5px] font-black text-[#7A6C5E] uppercase tracking-wider block">
+                        Logistics
+                      </span>
+                      <span
+                        className="font-black text-[#1C1814] text-[11px] truncate block mt-0.5"
+                        title={hasPickup || hasReturn ? `Pickup (${hasPickup ? `₹${pickupCost}` : 'Self'}) + Delivery (${hasReturn ? `₹${returnCost}` : 'Self'})` : 'Self-Arranged (Bring & Collect)'}
+                      >
+                        {hasPickup && hasReturn ? `Pickup + Delivery (+₹${totalLogistics})` : hasPickup ? `Pickup (+₹${pickupCost})` : hasReturn ? `Delivery (+₹${returnCost})` : 'Self-Arranged'}
+                      </span>
+                    </div>
+
+                    <div className={`p-2 rounded-xl border shadow-2xs ${isPaid ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-[#E2D7CB]/70'}`}>
+                      <span className={`text-[9.5px] font-black uppercase tracking-wider block ${isPaid ? 'text-emerald-700' : 'text-[#7A6C5E]'}`}>
+                        {isPaid ? 'Amount Paid' : 'Total Quote'}
+                      </span>
+                      <span className={`font-black text-xs block mt-0.5 ${isPaid ? 'text-emerald-700' : 'text-[#38A132]'}`}>
+                        ₹{finalTotalAmount.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Live Workshop Manufacturing Widget */}
                   {(isPaid || r.status === 'IN_PRODUCTION' || r.active_stage || (r.production_stages && r.production_stages.length > 0)) && (() => {
                     const activeStg = r.active_stage || (r.production_stages && r.production_stages.find(s => s.status === 'IN_PROGRESS' || s.status === 'PAUSED')) || (r.production_stages && r.production_stages[0]);
                     const stgName = activeStg ? activeStg.stage_name : r.service_type;
@@ -601,15 +600,15 @@ export const FabricationTab: React.FC = () => {
                       : (r.overall_progress_percentage || (activeStg ? activeStg.progress_percentage : 0));
 
                     return (
-                      <div className="bg-gradient-to-br from-[#FAF7F2] to-[#F5ECE1]/60 p-3 rounded-2xl border border-[#E2D7CB] space-y-2.5">
+                      <div className="bg-gradient-to-br from-[#FAF8F5] to-[#F5ECE1]/60 p-3 rounded-2xl border border-[#E2D7CB] space-y-2">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <Hammer className="w-3.5 h-3.5 text-[#38A132]" />
-                            <span className="text-xs font-black text-[#2C241D]">
-                              Workshop Manufacturing
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Hammer className="w-3.5 h-3.5 text-[#38A132] shrink-0" />
+                            <span className="text-xs font-black text-[#1C1814] truncate">
+                              {stgName}
                             </span>
                           </div>
-                          <span className={`px-2 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                          <span className={`px-2 py-0.5 rounded-full font-black text-[9.5px] uppercase shrink-0 ${
                             isPaused
                               ? 'bg-amber-100 text-amber-900 border border-amber-300'
                               : r.status === 'COMPLETED'
@@ -620,38 +619,30 @@ export const FabricationTab: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* Active Stage & Worker Info */}
-                        <div className="text-[11px] text-[#5C4E42]">
-                          <div>
-                            Active Stage: <strong className="text-[#2C241D]">{stgName}</strong>
+                        {/* Artisan Note if available */}
+                        {activeStg && activeStg.assigned_worker_name && (
+                          <div className="text-[10px] text-[#6B5C4D]">
+                            Artisan: <strong className="text-[#1C1814]">{activeStg.assigned_worker_name}</strong>
                           </div>
-                          {activeStg && activeStg.assigned_worker_name && (
-                            <div className="text-[10px] text-[#7A6C5E] mt-0.5">
-                              Assigned Artisan: <strong className="text-[#2C241D]">{activeStg.assigned_worker_name}</strong>
-                            </div>
-                          )}
-                        </div>
+                        )}
 
-                        {/* Paused Alert Banner */}
+                        {/* Paused Alert */}
                         {isPaused && (
-                          <div className="p-2 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 text-[11px] font-bold flex items-start gap-1.5">
-                            <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
-                            <div className="min-w-0 flex-1">
-                              <span className="block font-black uppercase text-[9px] text-amber-800">Production Paused</span>
-                              <span className="text-[10px] leading-tight font-medium">{pauseReason} (Artisan will resume work shortly)</span>
-                            </div>
+                          <div className="p-2 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 text-[10.5px] font-bold flex items-start gap-1.5">
+                            <Pause className="w-3 h-3 text-amber-700 shrink-0 mt-0.5" />
+                            <span className="text-[10px] leading-tight font-medium">{pauseReason}</span>
                           </div>
                         )}
 
                         {/* Progress Bar & Percentage */}
                         <div>
-                          <div className="flex justify-between items-center text-[10px] font-extrabold text-[#7A6C5E] mb-1">
+                          <div className="flex justify-between items-center text-[10px] font-black text-[#7A6C5E] mb-1">
                             <span>Stage Completion</span>
                             <span className="font-mono text-xs font-black text-[#38A132]">{progressPct}%</span>
                           </div>
-                          <div className="w-full bg-[#E2D7CB] rounded-full h-2 overflow-hidden">
+                          <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
                             <div
-                              className={`h-2 rounded-full transition-all duration-500 ${
+                              className={`h-1.5 rounded-full transition-all duration-500 ${
                                 isPaused
                                   ? 'bg-amber-500'
                                   : progressPct >= 100
@@ -663,63 +654,81 @@ export const FabricationTab: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Procedural Step Checklist Breakdown */}
-                        <div className="space-y-1 pt-1 border-t border-[#E2D7CB]/60">
-                          <span className="text-[9px] font-black uppercase tracking-wider text-[#7A6C5E] block">
-                            Procedural Step Breakdown ({checkedCount}/{totalSections})
-                          </span>
-                          <div className="grid grid-cols-1 gap-1">
-                            {sections.map((sec, idx) => {
-                              const isDone = completedSections.includes(sec.id);
-                              return (
-                                <div
-                                  key={sec.id}
-                                  className={`p-1.5 rounded-lg text-[10px] flex items-center justify-between border ${
-                                    isDone
-                                      ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold'
-                                      : 'bg-white/70 border-[#E2D7CB]/60 text-[#7A6C5E]'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    {isDone ? (
-                                      <div className="w-3 h-3 rounded-full bg-[#38A132] text-white flex items-center justify-center shrink-0">
-                                        <Check className="w-2 h-2 stroke-[3]" />
+                        {/* Collapsible Procedural Steps Breakdown */}
+                        {totalSections > 0 && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => toggleCardSteps(r.fabrication_id)}
+                              className="w-full flex items-center justify-between py-1.5 px-2.5 text-[10px] font-black text-[#5C4E42] hover:text-[#2E8B29] bg-white/80 hover:bg-white rounded-xl border border-[#E2D7CB]/70 transition-all cursor-pointer shadow-2xs"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <Sliders className="w-3 h-3 text-[#38A132]" />
+                                <span>Steps: <strong>{checkedCount}/{totalSections} Done</strong></span>
+                              </span>
+                              <span className="text-[9.5px] font-bold text-[#38A132] hover:underline">
+                                {isStepsExpanded ? 'Hide Steps ▲' : 'View Steps ▼'}
+                              </span>
+                            </button>
+
+                            {isStepsExpanded && (
+                              <div className="grid grid-cols-1 gap-1 pt-1.5 animate-fadeIn">
+                                {sections.map((sec, idx) => {
+                                  const isDone = completedSections.includes(sec.id);
+                                  return (
+                                    <div
+                                      key={sec.id}
+                                      className={`p-1.5 rounded-lg text-[10px] flex items-center justify-between border ${
+                                        isDone
+                                          ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 font-bold'
+                                          : 'bg-white border-[#E2D7CB]/60 text-[#7A6C5E]'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        {isDone ? (
+                                          <div className="w-3 h-3 rounded-full bg-[#38A132] text-white flex items-center justify-center shrink-0">
+                                            <Check className="w-2 h-2 stroke-[3]" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-3 h-3 rounded-full border border-[#B89768] shrink-0" />
+                                        )}
+                                        <span className={`truncate ${isDone ? 'text-emerald-900' : 'text-[#5C4E42]'}`}>
+                                          {idx + 1}. {sec.title}
+                                        </span>
                                       </div>
-                                    ) : (
-                                      <div className="w-3 h-3 rounded-full border border-[#B89768] shrink-0" />
-                                    )}
-                                    <span className={`truncate ${isDone ? 'text-emerald-900' : 'text-[#5C4E42]'}`}>
-                                      {idx + 1}. {sec.title}
-                                    </span>
-                                  </div>
-                                  <span className="text-[9px] font-mono text-[#7A6C5E] shrink-0 font-bold">+{sec.weightPct}%</span>
-                                </div>
-                              );
-                            })}
+                                      <span className="text-[9px] font-mono text-[#7A6C5E] shrink-0 font-bold">+{sec.weightPct}%</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })()}
 
+                  {/* Requirements note */}
                   {r.requirements && (
-                    <p className="text-[11px] text-[#7A6C5E] bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB]">
-                      "{r.requirements}"
-                    </p>
+                    <div className="text-[11px] text-[#5C4E42] bg-[#FAF8F5] px-3 py-1.5 rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 truncate">
+                      <span className="text-[10px] font-black uppercase text-[#9E9082] shrink-0">Note:</span>
+                      <span className="truncate italic">"{r.requirements}"</span>
+                    </div>
                   )}
                 </div>
 
-                <div className="pt-3 border-t border-[#E2D7CB] flex flex-col gap-2">
+                {/* Footer and Actions */}
+                <div className="pt-2 border-t border-[#EFE7DE] flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-[#9E9082] font-semibold">
                       {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recent'}
                     </span>
                     {isPaid ? (
-                      <span className="text-[11px] font-black text-[#2E8B29] bg-[#38A132]/15 border border-[#38A132]/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                        ✓ Paid in Full: ₹{finalTotalAmount.toLocaleString('en-IN')}
+                      <span className="text-[10.5px] font-black text-[#2E8B29] bg-[#38A132]/10 border border-[#38A132]/25 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        ✓ Paid in Full
                       </span>
                     ) : (
-                      <span className="text-[11px] font-extrabold text-[#2C241D]">
+                      <span className="text-[10.5px] font-black text-[#2C241D]">
                         {formatStatusLabel(r.status)}
                       </span>
                     )}
@@ -729,17 +738,12 @@ export const FabricationTab: React.FC = () => {
                     <div>
                       {r.status === 'QUOTED' || r.status === 'CUSTOMER_APPROVAL_PENDING' ? (
                         <div className="space-y-2 pt-1">
-                          <div className="text-[11px] font-extrabold text-[#7A6C5E] flex justify-between">
-                            <span>Quotation: ₹{quotePrice.toLocaleString('en-IN')}</span>
-                            {totalLogistics > 0 && <span>Total: ₹{finalTotalAmount.toLocaleString('en-IN')}</span>}
-                          </div>
                           <div className="flex gap-2">
                             <button
                               disabled={processingActionId === r.fabrication_id}
                               onClick={async () => {
                                 try {
                                   setProcessingActionId(r.fabrication_id);
-                                  // Optimistic immediate in-place update
                                   setRequests((prev) =>
                                     prev.map((item) =>
                                       item.fabrication_id === r.fabrication_id
@@ -754,7 +758,6 @@ export const FabricationTab: React.FC = () => {
                                     body: JSON.stringify({ status: 'APPROVED' })
                                   });
 
-                                  // Background silent sync without flashing loading screen
                                   fetchFabrications(false);
                                 } catch (e) {
                                   console.error('Error approving quotation:', e);
@@ -763,7 +766,7 @@ export const FabricationTab: React.FC = () => {
                                   setProcessingActionId(null);
                                 }
                               }}
-                              className="flex-1 py-2 px-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold cursor-pointer shadow-sm text-center disabled:opacity-60 transition-all"
+                              className="flex-1 py-2 px-3 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-black cursor-pointer shadow-sm text-center disabled:opacity-60 transition-all active:scale-95"
                             >
                               {processingActionId === r.fabrication_id ? 'Approving...' : 'Approve Quotation'}
                             </button>
@@ -772,7 +775,6 @@ export const FabricationTab: React.FC = () => {
                               onClick={async () => {
                                 try {
                                   setProcessingActionId(r.fabrication_id);
-                                  // Optimistic immediate in-place update
                                   setRequests((prev) =>
                                     prev.map((item) =>
                                       item.fabrication_id === r.fabrication_id
@@ -795,7 +797,7 @@ export const FabricationTab: React.FC = () => {
                                   setProcessingActionId(null);
                                 }
                               }}
-                              className="py-2 px-3 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-extrabold cursor-pointer text-center disabled:opacity-60 transition-all"
+                              className="py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-black cursor-pointer text-center disabled:opacity-60 transition-all active:scale-95"
                             >
                               Reject
                             </button>
@@ -804,7 +806,7 @@ export const FabricationTab: React.FC = () => {
                       ) : r.status === 'APPROVED' || r.status === 'CUSTOMER_APPROVED' ? (
                         <button
                           onClick={() => handlePayFabrication(r)}
-                          className="w-full py-2.5 px-4 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-md flex items-center justify-center gap-2 animate-fadeIn transition-all"
+                          className="w-full py-2.5 px-4 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-black cursor-pointer shadow-md shadow-[#38A132]/25 flex items-center justify-center gap-2 animate-fadeIn transition-all active:scale-98"
                         >
                           <span>
                             Pay Now (₹{((r.estimated_price || 0) + (hasPickup ? (r.material_pickup_charge || 0) : 0) + (hasReturn ? (r.return_delivery_charge || 0) : 0)).toLocaleString('en-IN')})
