@@ -246,6 +246,7 @@ def google_login(payload: schemas.GoogleLoginRequest, db: Session = Depends(get_
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A valid Google email address is required for authentication."
         )
+    email_clean = raw_email.strip().lower()
     raw_name = (name_extracted or payload.full_name or email_clean.split('@')[0]).strip()
     clean_name = re.sub(r'\d+', '', raw_name).strip()
     clean_name = re.sub(r'[\s._-]+', ' ', clean_name).strip().title()
@@ -253,7 +254,18 @@ def google_login(payload: schemas.GoogleLoginRequest, db: Session = Depends(get_
         clean_name = "Valued Customer"
     full_name = clean_name
 
-    user = db.query(models.User).filter(models.User.email == email_clean).first()
+    user = (
+        db.query(models.User)
+        .options(
+            joinedload(models.User.role),
+            joinedload(models.User.customer_profile)
+        )
+        .filter(
+            (models.User.email == email_clean) |
+            (models.User.email.ilike(email_clean))
+        )
+        .first()
+    )
 
     if not user:
         # Register new Google user automatically
