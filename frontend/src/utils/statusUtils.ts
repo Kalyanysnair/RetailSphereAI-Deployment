@@ -35,8 +35,23 @@ export const formatStatusLabel = (status?: string | null): string => {
       return 'In Production';
 
     case 'QC_PENDING':
+    case 'QC PENDING':
     case 'QUALITY_CONTROL':
-      return 'Quality Check';
+    case 'QUALITY CHECK':
+      return 'Quality Check Pending';
+
+    case 'QC_PASSED':
+      return 'QC Passed';
+
+    case 'QC_FAILED':
+    case 'REWORK_REQUIRED':
+      return 'QC Failed (Rework)';
+
+    case 'READY_FOR_PACKING':
+      return 'QC Passed (Packing)';
+
+    case 'READY_FOR_DISPATCH':
+      return 'Ready for Dispatch';
 
     case 'COMPLETED':
       return 'Completed';
@@ -51,6 +66,12 @@ export const formatStatusLabel = (status?: string | null): string => {
 
     case 'CANCELLED':
       return 'Cancelled';
+
+    case 'REQUEST_CANCELLATION':
+    case 'REQUEST CANCELLATION':
+    case 'CANCELLATION_REQUESTED':
+    case 'CANCELLATION REQUESTED':
+      return 'Request Cancellation';
 
     case 'DISPATCHED':
       return 'Dispatched';
@@ -88,11 +109,24 @@ export const getStatusBadgeColor = (status?: string | null): string => {
     return 'bg-amber-100 text-amber-800 border-amber-300';
   }
 
+  if (s === 'QC_PENDING' || s === 'QC PENDING' || s === 'QUALITY_CONTROL' || s === 'QUALITY CHECK') {
+    return 'bg-amber-100 text-amber-900 border-amber-400 font-extrabold';
+  }
+
   if (s === 'QUOTED' || s === 'CUSTOMER_APPROVAL_PENDING' || s === 'QUOTE PROVIDED' || s === 'QUOTATION_READY') {
     return 'bg-blue-100 text-blue-800 border-blue-300';
   }
 
-  if (s === 'CUSTOMER_APPROVED' || s === 'APPROVED' || s === 'PAID' || s === 'COMPLETED' || s === 'DELIVERED') {
+  if (
+    s === 'CUSTOMER_APPROVED' ||
+    s === 'APPROVED' ||
+    s === 'PAID' ||
+    s === 'COMPLETED' ||
+    s === 'DELIVERED' ||
+    s === 'QC_PASSED' ||
+    s === 'READY_FOR_PACKING' ||
+    s === 'READY_FOR_DISPATCH'
+  ) {
     return 'bg-emerald-100 text-emerald-800 border-emerald-300';
   }
 
@@ -100,7 +134,17 @@ export const getStatusBadgeColor = (status?: string | null): string => {
     return 'bg-purple-100 text-purple-800 border-purple-300';
   }
 
-  if (s === 'REJECTED' || s === 'CUSTOMER_REJECTED' || s === 'CANCELLED') {
+  if (
+    s === 'REJECTED' ||
+    s === 'CUSTOMER_REJECTED' ||
+    s === 'CANCELLED' ||
+    s === 'REQUEST_CANCELLATION' ||
+    s === 'REQUEST CANCELLATION' ||
+    s === 'CANCELLATION_REQUESTED' ||
+    s === 'CANCELLATION REQUESTED' ||
+    s === 'QC_FAILED' ||
+    s === 'REWORK_REQUIRED'
+  ) {
     return 'bg-rose-100 text-rose-800 border-rose-300';
   }
 

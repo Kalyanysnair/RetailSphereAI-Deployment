@@ -96,9 +96,9 @@ export const validatePincode = (pincode: string): string | null => {
 /**
  * Normalizes phone number into standard canonical string (e.g. +91 97782 37180).
  */
-export const formatPhoneNumber = (phone: string): string => {
+export const formatPhoneNumber = (phone: string | null | undefined): string => {
   if (!phone) return '';
-  const digits = phone.replace(/\D/g, '');
+  const digits = String(phone).replace(/\D/g, '');
   if (digits.length === 10) {
     return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
   }
@@ -106,5 +106,5 @@ export const formatPhoneNumber = (phone: string): string => {
     const local = digits.slice(2);
     return `+91 ${local.slice(0, 5)} ${local.slice(5)}`;
   }
-  return phone.trim();
+  return String(phone).trim();
 };

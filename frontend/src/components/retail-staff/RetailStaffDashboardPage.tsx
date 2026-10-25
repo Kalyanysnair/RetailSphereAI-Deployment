@@ -212,6 +212,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
     'dashboard' | 'quality' | 'retail_orders' | 'orders' | 'request_inbox' | 'customizations' | 'fabrication' | 'services' | 'fulfillment' | 'returns' | 'communication' | 'products' | 'inventory' | 'suppliers' | 'coupons' | 'queries' | 'admin_messages' | 'leave'
   >('dashboard');
 
+  const mainContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [activeTab]);
+
   // Control Center State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [hoveredSidebarTooltip, setHoveredSidebarTooltip] = useState<{ label: string; top: number; left: number } | null>(null);
@@ -993,7 +1004,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
     email: '',
     phone: '',
     department: 'Retail Furniture Catalog & Sales',
-    currentPassword: '',
     newPassword: '',
     confirmPassword: ''
   });
@@ -1043,11 +1053,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
     }
 
     // Validate Password Update Provision if any password field is filled
-    if (profileForm.currentPassword || profileForm.newPassword || profileForm.confirmPassword) {
-      if (!profileForm.currentPassword) {
-        setPasswordError('Please enter your current password to confirm account security updates.');
-        return;
-      }
+    if (profileForm.newPassword || profileForm.confirmPassword) {
       if (profileForm.newPassword.length < 6) {
         setPasswordError('New password must be at least 6 characters long.');
         return;
@@ -1063,7 +1069,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
       await updateUserProfile({
         full_name: nameTrim,
         phone: formattedPhone,
-        current_password: profileForm.currentPassword || undefined,
         new_password: profileForm.newPassword || undefined,
       });
 
@@ -1100,7 +1105,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
       // Reset password fields
       setProfileForm((prev) => ({
         ...prev,
-        currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       }));
@@ -1987,7 +1991,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
       </aside>
 
       {/* MAIN RIGHT CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div ref={mainContentRef} className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Modern Luxury Glassmorphic Mobile Top Header */}
         {(() => {
           interface MobileNavItem {
@@ -2373,9 +2377,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-xs font-black uppercase text-[#7A6C5E] tracking-wider">Today's Operations Summary</h3>
-                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-full">
-                        ⚡ Click any metric to filter queue
-                      </span>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
                       <div

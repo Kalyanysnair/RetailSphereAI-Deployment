@@ -2070,6 +2070,51 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                               </div>
                             </div>
 
+                            {/* Live Craftsmanship & QC Progress Status */}
+                            {ord.order_status !== 'Cancelled' && ord.order_status !== 'Pending' && (
+                              <div className="pt-1.5 space-y-1.5">
+                                <div className="flex items-center justify-between text-[10.5px]">
+                                  <span className="font-extrabold text-[#2C241D] flex items-center gap-1.5 truncate">
+                                    <Sparkles className="w-3 h-3 text-[#48A63E] shrink-0" />
+                                    <span className="truncate">
+                                      {ord.order_status === 'Completed'
+                                        ? 'Completed (QC Passed)'
+                                        : ord.order_status === 'QC_PENDING' || (ord as any).qc_status === 'QC_PENDING'
+                                        ? 'Quality Inspection Pending'
+                                        : ord.current_stage || 'In Production'}
+                                    </span>
+                                  </span>
+                                  <span className="font-mono font-black text-[#48A63E] shrink-0">
+                                    {ord.order_status === 'Completed'
+                                      ? 100
+                                      : ord.order_status === 'QC_PENDING' || (ord as any).qc_status === 'QC_PENDING'
+                                      ? 90
+                                      : ord.progress_percentage || 40}%
+                                  </span>
+                                </div>
+                                <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
+                                  <div
+                                    className={`h-1.5 rounded-full transition-all duration-500 ${
+                                      ord.order_status === 'Completed'
+                                        ? 'bg-[#48A63E]'
+                                        : ord.order_status === 'QC_PENDING' || (ord as any).qc_status === 'QC_PENDING'
+                                        ? 'bg-amber-500 animate-pulse'
+                                        : 'bg-gradient-to-r from-blue-500 to-[#48A63E]'
+                                    }`}
+                                    style={{
+                                      width: `${
+                                        ord.order_status === 'Completed'
+                                          ? 100
+                                          : ord.order_status === 'QC_PENDING' || (ord as any).qc_status === 'QC_PENDING'
+                                          ? 90
+                                          : ord.progress_percentage || 40
+                                      }%`
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
                             {/* Progress Tracking Toggle */}
                             <div className="pt-1 border-t border-[#EFE7DE]">
                               <button
@@ -2090,36 +2135,61 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#7A6C5E] block">
                                       Production Stages:
                                     </span>
-                                    <div className="grid grid-cols-5 gap-1 text-center">
-                                      {STAGES.map((stg, sIdx) => {
-                                        const currentIdx = STAGES.findIndex(
-                                          (s) => s.toLowerCase() === (ord.current_stage || '').toLowerCase()
-                                        );
-                                        const isDone = currentIdx > sIdx || ord.order_status === 'Completed';
-                                        const isCurrent = currentIdx === sIdx && ord.order_status !== 'Completed';
+                                    {(() => {
+                                      const isQcPending = ord.order_status === 'QC_PENDING' || (ord as any).qc_status === 'QC_PENDING';
+                                      const isCompleted = ord.order_status === 'Completed' || (ord as any).qc_status === 'QC_PASSED';
+                                      return (
+                                        <div className="space-y-2">
+                                          <div className="grid grid-cols-5 gap-1 text-center">
+                                            {STAGES.map((stg, sIdx) => {
+                                              let isDone = false;
+                                              let isCurrent = false;
 
-                                        return (
-                                          <div key={stg} className="space-y-1">
-                                            <div
-                                              className={`h-1.5 rounded-full ${
-                                                isDone
-                                                  ? 'bg-[#48A63E]'
-                                                  : isCurrent
-                                                  ? 'bg-[#48A63E] animate-pulse'
-                                                  : 'bg-[#D6C9B9]'
-                                              }`}
-                                            />
-                                            <span
-                                              className={`text-[8px] font-bold block leading-tight line-clamp-1 ${
-                                                isDone || isCurrent ? 'text-[#1C1814]' : 'text-[#A69B8D]'
-                                              }`}
-                                            >
-                                              {stg}
-                                            </span>
+                                              if (isCompleted) {
+                                                isDone = true;
+                                              } else if (isQcPending) {
+                                                isDone = sIdx < 3;
+                                                isCurrent = sIdx === 3;
+                                              } else {
+                                                const currentIdx = STAGES.findIndex(
+                                                  (s) => s.toLowerCase() === (ord.current_stage || '').toLowerCase()
+                                                );
+                                                isDone = currentIdx > sIdx;
+                                                isCurrent = currentIdx === sIdx;
+                                              }
+
+                                              return (
+                                                <div key={stg} className="space-y-1">
+                                                  <div
+                                                    className={`h-1.5 rounded-full ${
+                                                      isDone
+                                                        ? 'bg-[#48A63E]'
+                                                        : isCurrent
+                                                        ? 'bg-[#48A63E] animate-pulse'
+                                                        : 'bg-[#D6C9B9]'
+                                                    }`}
+                                                  />
+                                                  <span
+                                                    className={`text-[8px] font-bold block leading-tight line-clamp-1 ${
+                                                      isDone || isCurrent ? 'text-[#1C1814]' : 'text-[#A69B8D]'
+                                                    }`}
+                                                  >
+                                                    {stg}
+                                                  </span>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
-                                        );
-                                      })}
-                                    </div>
+
+                                          {isQcPending && (
+                                            <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[10px] text-amber-900 font-bold flex items-center gap-1.5">
+                                              <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0 animate-pulse" />
+                                              <span>Artisan workshop production complete. Awaiting official Quality Gate audit before dispatch.</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
 
                                   {/* Latest Remarks from Workshop */}

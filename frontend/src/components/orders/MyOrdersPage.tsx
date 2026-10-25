@@ -29,7 +29,8 @@ import {
   Layers,
   Scissors,
   Wrench,
-  ShoppingCart
+  ShoppingCart,
+  Sparkles
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder, downloadPaymentReceipt, CustomOrderData, isCustomerOrderMatch } from '../../services/api_production';
@@ -75,6 +76,10 @@ export interface FabricationItem {
   deadline?: string;
   estimated_price?: number;
   status: string;
+  qc_status?: string;
+  overall_progress_percentage?: number;
+  active_stage?: any;
+  production_stages?: any[];
   payment_status?: string;
   created_at?: string;
 }
@@ -133,6 +138,9 @@ interface OrderData {
   type?: 'standard' | 'custom' | 'fabrication' | 'service';
   date: string;
   status: string;
+  current_stage?: string;
+  progress_percentage?: number;
+  qc_status?: string;
   totalPrice: number;
   originalSubtotal?: number;
   couponCode?: string;
@@ -160,6 +168,19 @@ interface OrderData {
 interface MyOrdersPageProps {
   hideHeader?: boolean;
 }
+
+export const isServiceDateExceeded = (preferredDateStr?: string) => {
+  if (!preferredDateStr) return false;
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const pd = new Date(preferredDateStr);
+    pd.setHours(0, 0, 0, 0);
+    return pd < today;
+  } catch {
+    return false;
+  }
+};
 
 export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }) => {
   const navigate = useNavigate();
@@ -211,6 +232,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [cancelModalOrder, setCancelModalOrder] = useState<{ id: string | number; isCustom: boolean } | null>(null);
+  const [cancellingServiceId, setCancellingServiceId] = useState<number | null>(null);
 
   // Tracking & Fulfillment Modal State
   const [trackingModalOrder, setTrackingModalOrder] = useState<OrderData | null>(null);
@@ -531,18 +553,26 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   };
 
   const handleCancelService = async (srvId: number) => {
-    if (!window.confirm('Are you sure you want to cancel this service appointment?')) return;
+    if (!window.confirm('Are you sure you want to cancel this on-site service appointment?')) return;
+    setCancellingServiceId(srvId);
     try {
-      await fetch(`/api/services/requests/${srvId}/status`, {
+      setServices(prev => prev.map(s => s.service_id === srvId ? { ...s, status: 'Cancelled' } : s));
+
+      const res = await fetch(`/api/services/requests/${srvId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'Cancelled' })
       });
-      loadOrdersFromDB();
-      setToastMessage('Service appointment cancelled.');
-      setTimeout(() => setToastMessage(null), 3500);
+      if (res.ok) {
+        setToastMessage('On-site service appointment cancelled successfully.');
+        setTimeout(() => setToastMessage(null), 3500);
+      }
+      await loadOrdersFromDB();
     } catch (e) {
       console.warn('Cancel error:', e);
+      await loadOrdersFromDB();
+    } finally {
+      setCancellingServiceId(null);
     }
   };
 
@@ -579,6 +609,9 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
           type: 'custom',
           date: o.order_date || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           status: o.order_status || 'Pending Approval',
+          current_stage: o.current_stage,
+          progress_percentage: o.progress_percentage,
+          qc_status: o.qc_status,
           totalPrice: o.estimated_price || 0,
           isCustomBuild: true,
           is_locked: o.is_locked,
@@ -964,7 +997,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   };
 
   return (
-    <div className="relative min-h-screen text-[#1C1814] font-sans selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden">
+    <div className="relative min-h-screen text-[#1C1814] font-sans flex flex-col selection:bg-[#387A46] selection:text-white wood-grain-finish overflow-x-hidden">
       {/* Toast Notice */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-[#38A132] text-white px-5 py-3 rounded-2xl shadow-xl font-extrabold text-xs flex items-center gap-2 animate-bounce">
@@ -973,16 +1006,23 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
         </div>
       )}
 
-      {/* Ambient Luxury Living Room Background with Enhanced Visibility */}
-      <div
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-45 pointer-events-none scale-105 transition-all duration-700"
-        style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
-        }}
-      />
-      {/* Warm Linen & Silk Ivory Translucent Studio Gradient */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#FAF8F5]/60 via-[#F1EDE6]/50 to-[#E6E0D5]/55 pointer-events-none" />
-      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.5),_transparent_70%)] pointer-events-none" />
+      {/* Subtle Wood Finish Texture & Ambient Atmospheric Background */}
+      {/* 1. Organic Vector Wood Grain Curves & Cathedral Growth Rings Pattern */}
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-40 wood-grain-overlay mix-blend-multiply" />
+
+      {/* 2. Soft Natural Wood Satin Sheen & Top Ambient Light */}
+      <div className="fixed top-0 left-0 right-0 h-64 bg-gradient-to-b from-[#E5D7C5]/70 via-[#EFE5D7]/40 to-transparent pointer-events-none z-0" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_100%_65%_at_50%_0%,rgba(255,250,242,0.6),rgba(245,239,230,0))] pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(224,210,192,0.4),_transparent_60%)] pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_bottom_left,_rgba(215,198,178,0.35),_transparent_60%)] pointer-events-none" />
+
+      {/* 3. Subtle Warm Ambient Atelier Glow Orbs */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-60">
+        <div className="absolute -top-24 left-1/4 w-[40rem] h-64 rounded-full bg-[#DFD0BC]/40 blur-3xl" />
+        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-[#E5D7C5]/40 blur-3xl" />
+        <div className="absolute top-1/3 -left-32 w-80 h-80 rounded-full bg-[#DFCEB7]/30 blur-3xl" />
+        <div className="absolute -bottom-32 right-1/4 w-[32rem] h-[32rem] rounded-full bg-[#E8DCCB]/35 blur-3xl" />
+      </div>
 
       {/* ORIGINAL MASTER NAVIGATION HEADER (Rendered only when not embedded inside MyActivityTab) */}
       {!hideHeader && <Header />}
@@ -1216,6 +1256,9 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                       }
                       if (item.kind === 'service') {
                         const s = item.data;
+                        const isExceeded = isServiceDateExceeded(s.preferred_date);
+                        const isFinal = s.status === 'Cancelled' || s.status === 'COMPLETED' || s.status === 'Completed';
+                        const effectiveStatus = (isExceeded && !isFinal) ? 'Request Cancellation' : s.status;
                         return (
                           <div
                             key={`glance-srv-${s.service_id}`}
@@ -1227,9 +1270,9 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                                 #SRV-{String(s.service_id).padStart(4, '0')}
                               </span>
                               <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border truncate max-w-[100px] ${
-                                s.payment_status === 'Paid' ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]' : getStatusBadgeColor(s.status)
+                                s.payment_status === 'Paid' ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]' : getStatusBadgeColor(effectiveStatus)
                               }`}>
-                                {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(s.status)}
+                                {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(effectiveStatus)}
                               </span>
                             </div>
                             <div className="flex items-center gap-2.5">
@@ -1306,7 +1349,22 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                               <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-300 text-[11px] font-extrabold flex items-center gap-1">
                                 Status: Cancelled
                               </span>
-                            ) : (order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered') ? (
+                            ) : (order.status === 'Completed' || order.status === 'Delivered') ? (
+                              <span className="px-3 py-1 rounded-full bg-[#E8F5E9] text-[#2D6338] border border-[#A6C495] text-[11px] font-extrabold flex items-center gap-1.5 shadow-2xs">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-[#48A63E]" />
+                                Status: Completed (QC Passed)
+                              </span>
+                            ) : (order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING') ? (
+                              <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-300 text-[11px] font-extrabold flex items-center gap-1.5 shadow-2xs">
+                                <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                                Status: Quality Inspection Pending
+                              </span>
+                            ) : order.status === 'In Production' ? (
+                              <span className="px-3 py-1 rounded-full bg-purple-50 text-purple-800 border border-purple-300 text-[11px] font-extrabold flex items-center gap-1.5 shadow-2xs">
+                                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                                Status: In Production
+                              </span>
+                            ) : (order.status === 'Paid' || order.status === 'Order Placed') ? (
                               <span className="px-3 py-1 rounded-full bg-[#E8F5E9] text-[#2D6338] border border-[#A6C495] text-[11px] font-extrabold flex items-center gap-1.5">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-[#48A63E]" />
                                 Status: Paid & Placed
@@ -1449,6 +1507,54 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                             </div>
                           );
                         })()}
+
+                        {/* Live Manufacturing & QC Progress Status */}
+                        {order.status !== 'Cancelled' && (
+                          <div className="bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl p-3.5 space-y-2 animate-fadeIn shadow-2xs">
+                            <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                              <span className="font-extrabold text-[#2C241D] flex items-center gap-2">
+                                <Sparkles className="w-3.5 h-3.5 text-[#48A63E]" />
+                                <span>Progress: {order.status === 'Completed' || order.status === 'Delivered' ? 'Completed (QC Passed)' : (order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING' ? 'Quality Inspection Pending' : (order.current_stage || 'In Production'))}</span>
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                                  order.status === 'Completed' || order.status === 'Delivered'
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    : order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING'
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                    : 'bg-blue-100 text-blue-800 border-blue-300'
+                                }`}>
+                                  {order.status === 'Completed' || order.status === 'Delivered'
+                                    ? 'Gate Passed ✓'
+                                    : order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING'
+                                    ? 'Audit in Progress ⏳'
+                                    : 'Crafting 🪵'}
+                                </span>
+                                <span className="font-mono font-black text-[#48A63E] text-xs">
+                                  {order.status === 'Completed' || order.status === 'Delivered' ? 100 : (order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING' ? 90 : (order.progress_percentage || 40))}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="w-full bg-[#E2D7CB] rounded-full h-2 overflow-hidden">
+                              <div
+                                className={`h-2 rounded-full transition-all duration-500 ${
+                                  order.status === 'Completed' || order.status === 'Delivered'
+                                    ? 'bg-[#48A63E]'
+                                    : order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING'
+                                    ? 'bg-amber-500 animate-pulse'
+                                    : 'bg-gradient-to-r from-blue-500 to-[#48A63E]'
+                                }`}
+                                style={{ width: `${order.status === 'Completed' || order.status === 'Delivered' ? 100 : (order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING' ? 90 : (order.progress_percentage || 40))}%` }}
+                              />
+                            </div>
+                            {(order.status === 'QC_PENDING' || order.status === 'QC Pending' || order.qc_status === 'QC_PENDING') && (
+                              <p className="text-[11px] text-amber-900 font-bold bg-amber-50 border border-amber-200 rounded-xl p-2 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0 animate-pulse" />
+                                <span>Workshop production stages completed. Undergoing strict Quality Gate inspection before packing and dispatch.</span>
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         {/* MAIN CONTENT ROW: Product Items List vs Payment Breakdown Box */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -1605,11 +1711,31 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
 
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${
-                              f.payment_status === 'Paid' || f.status === 'PAID'
+                              f.status === 'Cancelled'
+                                ? 'bg-rose-50 text-rose-800 border-rose-300'
+                                : f.status === 'COMPLETED'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs'
+                                : f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-2xs'
+                                : f.status === 'IN_PRODUCTION'
+                                ? 'bg-purple-100 text-purple-800 border-purple-300 shadow-2xs'
+                                : f.payment_status === 'Paid' || f.status === 'PAID'
                                 ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]'
                                 : getStatusBadgeColor(f.status)
                             }`}>
-                              Status: {f.payment_status === 'Paid' ? 'Paid & Scheduled' : formatStatusLabel(f.status)}
+                              Status: {
+                                f.status === 'Cancelled'
+                                  ? 'Cancelled'
+                                  : f.status === 'COMPLETED'
+                                  ? 'Completed (QC Passed)'
+                                  : f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING'
+                                  ? 'Quality Inspection Pending'
+                                  : f.status === 'IN_PRODUCTION'
+                                  ? 'In Production'
+                                  : f.payment_status === 'Paid' && (f.status === 'PAID' || f.status === 'Paid')
+                                  ? 'Paid & Queued'
+                                  : formatStatusLabel(f.status)
+                              }
                             </span>
 
                             {/* Pay Now Button */}
@@ -1641,7 +1767,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                             </button>
 
                             {/* Cancel Button */}
-                            {f.status !== 'Cancelled' && f.status !== 'Completed' && f.payment_status !== 'Paid' && (
+                            {f.status !== 'Cancelled' && f.status !== 'Completed' && f.status !== 'COMPLETED' && f.status !== 'QC_PENDING' && f.payment_status !== 'Paid' && (
                               <button
                                 onClick={() => handleCancelFabrication(f.fabrication_id)}
                                 className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
@@ -1672,6 +1798,54 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                             </div>
                           );
                         })()}
+
+                        {/* Live Manufacturing & QC Progress Status for Fabrication */}
+                        {f.status !== 'Cancelled' && (
+                          <div className="bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl p-3.5 space-y-2 animate-fadeIn shadow-2xs">
+                            <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                              <span className="font-extrabold text-[#2C241D] flex items-center gap-2">
+                                <Scissors className="w-3.5 h-3.5 text-[#48A63E]" />
+                                <span>Progress: {f.status === 'COMPLETED' ? 'Completed (QC Passed)' : (f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING' ? 'Quality Inspection Pending' : (f.active_stage ? f.active_stage.stage_name : (f.status === 'IN_PRODUCTION' ? 'Workshop Machining' : 'Queued for Workshop')))}</span>
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                                  f.status === 'COMPLETED'
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    : f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING'
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                    : 'bg-blue-100 text-blue-800 border-blue-300'
+                                }`}>
+                                  {f.status === 'COMPLETED'
+                                    ? 'Gate Passed ✓'
+                                    : f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING'
+                                    ? 'Audit in Progress ⏳'
+                                    : 'Fabricating ⚙️'}
+                                </span>
+                                <span className="font-mono font-black text-[#48A63E] text-xs">
+                                  {f.status === 'COMPLETED' ? 100 : (f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING' ? 90 : (f.overall_progress_percentage || (f.status === 'IN_PRODUCTION' ? 50 : 20)))}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="w-full bg-[#E2D7CB] rounded-full h-2 overflow-hidden">
+                              <div
+                                className={`h-2 rounded-full transition-all duration-500 ${
+                                  f.status === 'COMPLETED'
+                                    ? 'bg-[#48A63E]'
+                                    : f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING'
+                                    ? 'bg-amber-500 animate-pulse'
+                                    : 'bg-gradient-to-r from-blue-500 to-[#48A63E]'
+                                }`}
+                                style={{ width: `${f.status === 'COMPLETED' ? 100 : (f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING' ? 90 : (f.overall_progress_percentage || (f.status === 'IN_PRODUCTION' ? 50 : 20)))}%` }}
+                              />
+                            </div>
+                            {(f.status === 'QC_PENDING' || f.qc_status === 'QC_PENDING') && (
+                              <p className="text-[11px] text-amber-900 font-bold bg-amber-50 border border-amber-200 rounded-xl p-2 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0 animate-pulse" />
+                                <span>CNC and fabrication stages completed. Undergoing strict Quality Gate inspection before packing and delivery.</span>
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         {/* Content Row */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -1733,6 +1907,10 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
 
                   if (item.kind === 'service') {
                     const s = item.data;
+                    const isExceeded = isServiceDateExceeded(s.preferred_date);
+                    const isFinal = s.status === 'Cancelled' || s.status === 'COMPLETED' || s.status === 'Completed';
+                    const effectiveStatus = (isExceeded && !isFinal) ? 'Request Cancellation' : s.status;
+
                     return (
                       <div
                         id={`order-card-SRV-${s.service_id}`}
@@ -1751,16 +1929,22 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                           </div>
 
                           <div className="flex items-center gap-2 flex-wrap">
+                            {isExceeded && !isFinal && (
+                              <span className="text-[10.5px] font-extrabold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                ⚠️ Date Exceeded
+                              </span>
+                            )}
+
                             <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${
                               s.payment_status === 'Paid' || s.status === 'PAID'
                                 ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]'
-                                : getStatusBadgeColor(s.status)
+                                : getStatusBadgeColor(effectiveStatus)
                             }`}>
-                              Status: {s.payment_status === 'Paid' ? 'Paid & Confirmed' : formatStatusLabel(s.status)}
+                              Status: {s.payment_status === 'Paid' ? 'Paid & Confirmed' : formatStatusLabel(effectiveStatus)}
                             </span>
 
                             {/* Pay Now Button */}
-                            {s.estimated_price && s.payment_status !== 'Paid' && s.status !== 'PAID' && s.status !== 'Paid' && s.status !== 'Cancelled' && (
+                            {s.estimated_price && s.payment_status !== 'Paid' && s.status !== 'PAID' && s.status !== 'Paid' && s.status !== 'Cancelled' && effectiveStatus !== 'Request Cancellation' && (
                               <button
                                 onClick={() => handlePayNowService(s)}
                                 className="px-3.5 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"
@@ -1770,14 +1954,21 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                               </button>
                             )}
 
-                            {/* Cancel Button */}
-                            {s.status !== 'Cancelled' && s.status !== 'Completed' && s.payment_status !== 'Paid' && (
+                            {/* Request Cancellation / Cancel Button */}
+                            {s.status === 'Cancelled' || s.status === 'CANCELLED' ? (
+                              <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1 rounded-xl">
+                                Cancelled
+                              </span>
+                            ) : s.status !== 'Completed' && s.payment_status !== 'Paid' && (
                               <button
+                                type="button"
+                                disabled={cancellingServiceId === s.service_id}
                                 onClick={() => handleCancelService(s.service_id)}
-                                className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
-                                title="Cancel Service Appointment"
+                                className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95 disabled:opacity-50"
+                                title="Request cancellation for this on-site service"
                               >
                                 <X className="w-3.5 h-3.5 text-rose-600" />
+                                <span>{cancellingServiceId === s.service_id ? 'Cancelling...' : 'Request Cancellation'}</span>
                               </button>
                             )}
                           </div>

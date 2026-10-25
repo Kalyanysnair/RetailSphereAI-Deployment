@@ -213,6 +213,20 @@ def get_custom_orders(
         if prog.custom_order_id not in latest_progress_map:
             latest_progress_map[prog.custom_order_id] = prog
 
+    # 5. Batch fetch latest quality inspections
+    all_qc_inspections = (
+        db.query(models.QualityInspection)
+        .filter(
+            models.QualityInspection.order_id.in_(order_ids),
+            models.QualityInspection.order_type.in_(["Custom", "CUSTOM", "Customization", "CUSTOMIZATION"])
+        )
+        .order_by(models.QualityInspection.inspected_at.desc())
+        .all()
+    )
+    inspections_by_order = {}
+    for insp in all_qc_inspections:
+        inspections_by_order.setdefault(insp.order_id, []).append(insp)
+
     def get_supervisor_name(u_id):
         if not u_id:
             return "Unassigned Supervisor"
@@ -261,6 +275,47 @@ def get_custom_orders(
                     })
 
         latest_progress = latest_progress_map.get(ord_obj.custom_order_id)
+        insps = inspections_by_order.get(ord_obj.custom_order_id, [])
+        latest_insp = insps[0] if insps else None
+
+        st_upper = (ord_obj.order_status or "").upper().strip()
+        all_stages_done = len(stages) > 0 and all(s.status == "COMPLETED" for s in stages)
+
+        qc_status = "NOT_APPLICABLE"
+        if latest_insp:
+            qc_status = "QC_PASSED" if latest_insp.result == "PASS" else "QC_FAILED"
+        elif st_upper in ["QC_PENDING", "QC PENDING"] or all_stages_done:
+            qc_status = "QC_PENDING"
+        elif st_upper == "COMPLETED":
+            qc_status = "QC_PASSED"
+
+        # Compute accurate stage name and percentage respecting QC Gate:
+        # A request is completed ONLY after QC is done and passed!
+        eff_stage = latest_progress.stage if latest_progress else "Pending Approval"
+        eff_pct = latest_progress.progress_percentage if latest_progress else 0
+
+        if qc_status == "QC_PASSED" or st_upper == "COMPLETED":
+            eff_stage = "Completed (QC Passed)"
+            eff_pct = 100
+        elif qc_status == "QC_PENDING" or st_upper in ["QC_PENDING", "QC PENDING"] or all_stages_done:
+            eff_stage = "Quality Inspection Pending"
+            eff_pct = 90
+        elif qc_status == "QC_FAILED" or st_upper == "REWORK_REQUIRED":
+            eff_stage = "QC Inspection Failed (Rework Required)"
+            eff_pct = 75
+        elif stages:
+            completed_cnt = sum(1 for s in stages if s.status == "COMPLETED")
+            active_s = next((s for s in stages if s.status in ["IN_PROGRESS", "ASSIGNED"]), None)
+            if active_s:
+                eff_stage = active_s.stage_name
+                eff_pct = max(15, min(85, int((completed_cnt / len(stages)) * 85)))
+            elif completed_cnt == len(stages):
+                eff_stage = "Quality Inspection Pending"
+                eff_pct = 90
+        elif st_upper in ["IN PRODUCTION", "IN_PRODUCTION"]:
+            if eff_pct == 0:
+                eff_stage = "In Workshop Production"
+                eff_pct = 40
 
         result.append({
             "custom_order_id": ord_obj.custom_order_id,
@@ -276,13 +331,14 @@ def get_custom_orders(
             "reference_image": ord_obj.reference_image,
             "estimated_price": float(ord_obj.estimated_price) if ord_obj.estimated_price else None,
             "order_status": ord_obj.order_status,
+            "qc_status": qc_status,
             "is_locked": True if (ord_obj.order_status in ["Approved", "In Production", "Completed"] or (ord_obj.estimated_price and float(ord_obj.estimated_price) > 0) or getattr(ord_obj, "is_locked", False)) else False,
             "order_date": ord_obj.order_date.isoformat() if ord_obj.order_date else None,
             "assigned_workers": assigned_workers,
             "production_staff_id": ord_obj.production_staff_id,
             "production_staff_name": get_supervisor_name(ord_obj.production_staff_id),
-            "current_stage": latest_progress.stage if latest_progress else "Pending Approval",
-            "progress_percentage": latest_progress.progress_percentage if latest_progress else 0,
+            "current_stage": eff_stage,
+            "progress_percentage": eff_pct,
             "latest_remarks": latest_progress.remarks if latest_progress else None,
             "customer_material_id": ord_obj.customer_material_id,
             "customer_material": {

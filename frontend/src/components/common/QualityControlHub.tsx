@@ -793,7 +793,7 @@ export const QualityControlHub: React.FC<QualityControlHubProps> = ({
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[#EFE7DE] bg-[#FAF7F2] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider">
-                    <th className="py-3 px-4">Job ID & Type</th>
+                    <th className="py-3 px-4 min-w-[170px]">Job ID & Type</th>
                     <th className="py-3 px-4">Customer</th>
                     <th className="py-3 px-4">Approved Specifications</th>
                     <th className="py-3 px-4">Production Staff</th>
@@ -823,17 +823,17 @@ export const QualityControlHub: React.FC<QualityControlHubProps> = ({
                           <td className="py-3.5 px-4 font-black">
                             <div className="flex items-center gap-2">
                               <span
-                                className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border shrink-0 ${
                                   isCustom
                                     ? 'bg-purple-50 text-purple-800 border-purple-200'
                                     : 'bg-amber-50 text-amber-800 border-amber-200'
                                 }`}
                               >
-                                {job.order_type}
+                                {job.order_type?.toUpperCase().includes('FAB') ? 'FAB' : job.order_type}
                               </span>
-                              <div>
-                                <span className="text-xs font-black text-[#2C241D] block">{job.job_id}</span>
-                                <span className="text-[10px] font-semibold text-[#7A6C5E]">{job.job_title}</span>
+                              <div className="min-w-0">
+                                <span className="text-xs font-black text-[#2C241D] block whitespace-nowrap">{job.job_id}</span>
+                                <span className="text-[10px] font-semibold text-[#7A6C5E] block truncate">{job.job_title}</span>
                               </div>
                             </div>
                           </td>
@@ -1323,7 +1323,7 @@ export const QualityControlHub: React.FC<QualityControlHubProps> = ({
 
                           <td className="py-3.5 px-4">
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D]">
-                              {insp.order_type}
+                              {insp.order_type?.toUpperCase().includes('FAB') ? 'FAB' : insp.order_type}
                             </span>
                           </td>
 

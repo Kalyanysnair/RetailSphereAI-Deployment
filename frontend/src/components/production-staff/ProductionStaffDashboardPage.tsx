@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
-import { validatePhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
+import { validateName, validatePhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
 import { fetchAllLeaveRequests, reviewLeaveRequest, applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { fetchVehiclesDB, fetchFleetSummaryDB, fetchEligibleDriversDB, updateVehicleStatusDB, VehicleItem, FleetSummary, EligibleDriver } from '../../services/api_fleet';
 import { MachineryTab } from './MachineryTab';
@@ -178,12 +178,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<WorkerLeaveItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'active_production' | 'workers' | 'materials' | 'quality' | 'completed' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials' | 'leave' | 'suppliers' | 'reviews' | 'fleet' | 'my_leave'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'active_production' | 'workers' | 'materials' | 'quality' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials' | 'leave' | 'suppliers' | 'reviews' | 'fleet' | 'my_leave'>('dashboard');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [approvalFilter, setApprovalFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [allotmentSearchQuery, setAllotmentSearchQuery] = useState<string>('');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  const mainContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [activeTab]);
 
   // Suppliers Directory State
   const [suppliersList, setSuppliersList] = useState<any[]>(() => {
@@ -688,10 +699,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   // Staff Profile Modal & Password Update State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
+  const [profileFullName, setProfileFullName] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordNotice, setPasswordNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [isMaterialReceiptModalOpen, setIsMaterialReceiptModalOpen] = useState(false);
 
   // Customer Material Receipts Log State & Dynamic Raw Material Stats
@@ -900,6 +915,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       return null;
     }
   });
+
+  useEffect(() => {
+    if (userProfile) {
+      setProfileFullName(userProfile.full_name || userProfile.name || '');
+      setProfilePhone(extract10DigitPhone(userProfile.phone || ''));
+    }
+  }, [userProfile, isProfileModalOpen]);
 
   const loadNotifs = async () => {
     try {
@@ -1731,43 +1753,64 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     setTimeout(() => setSuccessNotice(null), 6000);
   };
 
-  const handleUpdatePassword = async (e: React.FormEvent) => {
+  const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordNotice({ type: 'error', text: 'Please fill in all password fields.' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordNotice({ type: 'error', text: 'New password and confirm password do not match.' });
-      return;
-    }
-    if (newPassword.length < 6) {
-      setPasswordNotice({ type: 'error', text: 'New password must be at least 6 characters.' });
+    setPasswordNotice(null);
+    setPhoneError(null);
+    setNameError(null);
+
+    const nameTrim = profileFullName.trim();
+    const nameErr = validateName(nameTrim);
+    if (nameErr) {
+      setNameError(nameErr);
       return;
     }
 
-    let userFullName = 'Production Staff';
-    try {
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        userFullName = parsed.full_name || parsed.name || 'Production Staff';
+    const phoneDigits = extract10DigitPhone(profilePhone);
+    const phoneErr = validatePhoneNumber(phoneDigits, true);
+    if (phoneErr) {
+      setPhoneError(phoneErr);
+      return;
+    }
+    const formattedPhone = `+91${phoneDigits}`;
+
+    // If password fields are used, validate them
+    if (newPassword || confirmPassword) {
+      if (newPassword.length < 6) {
+        setPasswordNotice({ type: 'error', text: 'New password must be at least 6 characters.' });
+        return;
       }
-    } catch (e) { }
+      if (newPassword !== confirmPassword) {
+        setPasswordNotice({ type: 'error', text: 'New password and confirm password do not match.' });
+        return;
+      }
+    }
 
+    setIsUpdatingProfile(true);
     try {
       await updateUserProfile({
-        full_name: userFullName,
-        current_password: currentPassword,
-        new_password: newPassword
+        full_name: nameTrim,
+        phone: formattedPhone,
+        new_password: newPassword || undefined
       });
-      setPasswordNotice({ type: 'success', text: 'Password updated successfully!' });
-      setCurrentPassword('');
+
+      const stored = localStorage.getItem('user');
+      let parsed = stored ? JSON.parse(stored) : {};
+      parsed = { ...parsed, full_name: nameTrim, phone: formattedPhone };
+      localStorage.setItem('user', JSON.stringify(parsed));
+      setUserProfile(parsed);
+
+      setPasswordNotice({ type: 'success', text: 'Profile & contact details updated successfully!' });
       setNewPassword('');
       setConfirmPassword('');
-      setTimeout(() => setPasswordNotice(null), 5000);
+      setTimeout(() => {
+        setPasswordNotice(null);
+        setIsProfileModalOpen(false);
+      }, 1500);
     } catch (err: any) {
-      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update password.' });
+      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update profile.' });
+    } finally {
+      setIsUpdatingProfile(false);
     }
   };
 
@@ -2444,7 +2487,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               { id: 'suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
               { id: 'quality', label: 'Quality & Rework', icon: CheckCircle2 },
               { id: 'reviews', label: 'Craftsmanship Reviews', icon: Star },
-              { id: 'completed', label: 'Completed Jobs', icon: Check },
               { id: 'onsite', label: 'On-Site Jobs', icon: Sparkles },
             ].map((item) => {
               const Icon = item.icon;
@@ -2533,7 +2575,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       </aside>
 
       {/* RIGHT MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div ref={mainContentRef} className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Mobile Top Navigation */}
         <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 sticky top-0 z-30 shadow-xs">
           <div className="flex items-center justify-between">
@@ -2566,7 +2608,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {activeTab === 'suppliers' && 'Suppliers'}
                   {activeTab === 'quality' && 'Quality & QC'}
                   {activeTab === 'reviews' && 'Reviews'}
-                  {activeTab === 'completed' && 'Completed'}
                   {activeTab === 'onsite' && 'On-Site Jobs'}
                   {activeTab === 'reports' && 'Reports'}
                   {activeTab === 'ai_insights' && 'AI Suite'}
@@ -2659,7 +2700,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           { id: 'suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
                           { id: 'quality', label: 'Quality & Rework', icon: CheckCircle2 },
                           { id: 'reviews', label: 'Craftsmanship Reviews', icon: Star },
-                          { id: 'completed', label: 'Completed Jobs', icon: Check },
                           { id: 'onsite', label: 'On-Site Jobs', icon: Sparkles },
                         ].map((m) => {
                           const Icon = m.icon;
@@ -2794,7 +2834,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {activeTab === 'suppliers' && 'Suppliers & Raw Material Vendors'}
                   {activeTab === 'quality' && 'Quality Control & Rework Inspection'}
                   {activeTab === 'reviews' && 'Craftsmanship Reviews & Build Quality'}
-                  {activeTab === 'completed' && 'Completed Production Jobs & Handover'}
                   {activeTab === 'onsite' && 'On-Site Technical Services & Jobs'}
                   {activeTab === 'reports' && 'Production Analytics & Performance Reports'}
                   {activeTab === 'machines' && 'Workshop Machinery Status'}
@@ -2815,7 +2854,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {activeTab === 'suppliers' && 'Directory of verified timber mills, fabric houses, steel stockists, and lacquer vendors.'}
                   {activeTab === 'quality' && 'Inspect completed builds against specifications, approve for fulfillment, or assign rework jobs.'}
                   {activeTab === 'reviews' && 'Customer satisfaction ratings, joinery strength evaluations, and bespoke build feedback.'}
-                  {activeTab === 'completed' && 'View completed custom furniture builds and initiate handover to Retail Staff fulfillment.'}
                   {activeTab === 'onsite' && 'Technical coordination and scheduling for on-site services.'}
                   {activeTab === 'reports' && 'Manufacturing metrics, pass rates, and worker utilization.'}
                   {activeTab === 'machines' && 'Monitor workshop machinery equipment status, maintenance, and allocation.'}
@@ -3050,7 +3088,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
 
                   <div
-                    onClick={() => setActiveTab('completed')}
+                    onClick={() => setActiveTab('quality')}
                     className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-xl hover:bg-white/85 cursor-pointer group"
                   >
                     <div className="flex items-center justify-between text-[#8C8275]">
@@ -3061,7 +3099,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       {overviewData?.metrics?.completed_today ?? completedCount}
                     </div>
                     <span className="text-[11px] font-extrabold text-teal-800 bg-teal-100 px-2.5 py-0.5 rounded-full inline-block border border-teal-300">
-                      Fulfillment Handover →
+                      Quality Gate & Records →
                     </span>
                   </div>
 
@@ -4729,98 +4767,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     </p>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* COMPLETED JOBS VIEW (activeTab === 'completed') */}
-            {activeTab === 'completed' && (
-              <div className="space-y-6 relative z-10">
-                {orders.filter(o => o.order_status === 'Completed' || (o.assigned_workers && o.assigned_workers.length > 0 && o.assigned_workers.every(w => w.task_status && w.task_status.includes('Completed')))).length > 0 ? (
-                  <div className="space-y-4">
-                    {orders
-                      .filter(o => o.order_status === 'Completed' || (o.assigned_workers && o.assigned_workers.length > 0 && o.assigned_workers.every(w => w.task_status && w.task_status.includes('Completed'))))
-                      .map((ord) => (
-                        <div
-                          key={ord.custom_order_id}
-                          className="ultra-glass-card rounded-3xl p-5 shadow-xl border border-emerald-300/80 bg-emerald-50/40 backdrop-blur-xl text-[#2C241D] space-y-4"
-                        >
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-emerald-200 pb-3">
-                            <div className="flex items-center gap-2.5 flex-wrap">
-                              <span className="text-xs font-mono font-extrabold text-[#38A132] px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/25">
-                                ORDER #{ord.custom_order_id}
-                              </span>
-                              <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Worker Production Completed</span>
-                              </span>
-                            </div>
-                            {ord.estimated_price && ord.estimated_price > 0 && (
-                              <div className="text-base font-black text-[#38A132] bg-white px-3.5 py-1 rounded-xl border border-[#38A132]/20">
-                                ₹{ord.estimated_price.toLocaleString('en-IN')}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="space-y-3">
-                            <h3 className="text-xl font-black text-[#2C241D] tracking-tight flex items-center gap-2">
-                              <span>{ord.furniture_type}</span>
-                              <span className="text-xs font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200">
-                                Ready for Retail Fulfillment Handover
-                              </span>
-                            </h3>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/70 p-3.5 rounded-2xl border border-emerald-200 text-xs shadow-inner">
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Client</span>
-                                <span className="font-extrabold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Dimensions</span>
-                                <span className="font-extrabold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Material</span>
-                                <span className="font-extrabold text-[#2C241D] block truncate">🪵 {ord.material}</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Color & Finish</span>
-                                <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
-                              </div>
-                            </div>
-
-                            {/* Completed Workers Roster */}
-                            {ord.assigned_workers && ord.assigned_workers.length > 0 && (
-                              <div className="bg-white p-3 rounded-2xl border border-emerald-200 text-xs space-y-1">
-                                <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">
-                                  Completed Workers & Department Stages:
-                                </span>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  {ord.assigned_workers.map((w, idx) => (
-                                    <span key={idx} className="font-extrabold text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-300 text-xs flex items-center gap-1.5">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>👷 {w.worker_name} ({w.specialization || w.task_status})</span>
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                ) : (
-                  <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
-                    <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mx-auto shadow-sm border border-teal-200">
-                      <CheckCircle2 className="w-8 h-8" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-extrabold text-[#2C241D]">No Completed Production Jobs Yet</h3>
-                      <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                        Furniture orders that complete all manufacturing stages and pass quality assurance will be listed here for formal handover to Retail Staff fulfillment.
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -8103,35 +8049,59 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
             <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-4">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold text-lg flex items-center justify-center shadow-md">
-                {(userProfile?.full_name || 'Production Lead').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                {(profileFullName || userProfile?.full_name || 'Production Lead').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
               </div>
               <div>
                 <h3 className="text-lg font-extrabold text-[#2C241D]">Production Staff Profile</h3>
-                <p className="text-xs text-[#7A6C5E] font-medium">Manage account security and view assigned credentials</p>
+                <p className="text-xs text-[#7A6C5E] font-medium">Manage account security and contact information</p>
               </div>
             </div>
 
-            {/* General Info */}
-            <div className="space-y-3 text-xs">
+            {passwordNotice && (
+              <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${passwordNotice.type === 'success' ? 'bg-[#48A63E]/15 text-[#3D9134] border border-[#48A63E]/30' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                }`}>
+                {passwordNotice.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <XCircle className="w-4 h-4 flex-shrink-0" />}
+                <span>{passwordNotice.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateProfile} className="space-y-3.5 text-xs">
+              {/* General Info */}
               <div>
-                <label className="block font-bold text-[#6B5C4D] mb-1">Full Name</label>
+                <label className="block font-bold text-[#6B5C4D] mb-1">
+                  Full Name <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
-                  readOnly
-                  value={userProfile?.full_name || 'Production Staff Member'}
-                  className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-extrabold cursor-not-allowed"
+                  value={profileFullName}
+                  onChange={(e) => {
+                    setProfileFullName(e.target.value);
+                    if (nameError) setNameError(null);
+                  }}
+                  placeholder="e.g. Production Lead"
+                  className={`w-full p-2.5 rounded-xl border ${
+                    nameError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-[#E2D7CB] focus:border-[#48A63E]'
+                  } bg-white text-[#2C241D] font-extrabold text-xs focus:outline-none`}
+                  required
                 />
+                {nameError && (
+                  <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{nameError}</span>
+                  </p>
+                )}
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="font-bold text-[#6B5C4D]">Email Address (Locked)</label>
                   <button
+                    type="button"
                     onClick={() => {
                       setIsProfileModalOpen(false);
                       setActiveTab('queries');
                     }}
-                    className="text-[10px] font-bold text-[#48A63E] hover:underline flex items-center gap-1"
+                    className="text-[10px] font-bold text-[#48A63E] hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <Lock className="w-3 h-3" /> Request Email Change →
                   </button>
@@ -8146,64 +8116,93 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   🔒 Email modification is restricted. Submit an official request in the Queries section to change email.
                 </p>
               </div>
-            </div>
 
-            {/* Password Update Provision */}
-            <div className="border-t border-[#E2D7CB] pt-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-[#48A63E]" />
-                <h4 className="font-extrabold text-sm text-[#2C241D]">Update Password</h4>
+              {/* Contact Phone */}
+              <div>
+                <label className="block font-bold text-[#6B5C4D] mb-1">
+                  Contact Phone (10-Digit) <span className="text-rose-600 font-extrabold">*</span>
+                </label>
+                <div className={`flex rounded-xl overflow-hidden border ${
+                  phoneError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-[#E2D7CB] focus-within:border-[#48A63E] focus-within:ring-1 focus-within:ring-[#48A63E]'
+                } bg-white`}>
+                  <span className="inline-flex items-center px-3 py-2 bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs border-r border-[#E2D7CB] select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    placeholder="9876543210"
+                    value={extract10DigitPhone(profilePhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setProfilePhone(val);
+                      if (phoneError) setPhoneError(null);
+                    }}
+                    className="w-full px-3 py-2 bg-transparent text-[#2C241D] font-extrabold text-xs focus:outline-none"
+                    required
+                  />
+                </div>
+                {phoneError && (
+                  <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{phoneError}</span>
+                  </p>
+                )}
               </div>
 
-              {passwordNotice && (
-                <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${passwordNotice.type === 'success' ? 'bg-[#48A63E]/15 text-[#3D9134] border border-[#48A63E]/30' : 'bg-rose-100 text-rose-800 border border-rose-200'
-                  }`}>
-                  {passwordNotice.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <XCircle className="w-4 h-4 flex-shrink-0" />}
-                  <span>{passwordNotice.text}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleUpdatePassword} className="space-y-3 text-xs">
-
-                <div>
-                  <label className="block font-bold text-[#6B5C4D] mb-1">New Password</label>
-                  <input
-                    type="password"
-                    placeholder="Enter new password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
-                  />
+              {/* Password Update Provision */}
+              <div className="border-t border-[#E2D7CB] pt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Key className="w-4 h-4 text-[#48A63E]" />
+                  <h4 className="font-extrabold text-xs uppercase tracking-wider text-[#2C241D]">
+                    Update Password (Optional)
+                  </h4>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-[#6B5C4D] mb-1">Confirm New Password</label>
-                  <input
-                    type="password"
-                    placeholder="Re-enter new password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
-                  />
-                </div>
 
-                <div className="pt-2 flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsProfileModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#F2ECE1]"
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md"
-                  >
-                    Update Password
-                  </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-[#6B5C4D] mb-1">New Password</label>
+                    <input
+                      type="password"
+                      placeholder="Enter new password (min 6 chars)"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#6B5C4D] mb-1">Confirm New Password</label>
+                    <input
+                      type="password"
+                      placeholder="Re-enter new password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
                 </div>
-              </form>
-            </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-3 border-t border-[#E2D7CB]">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#F2ECE1] cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingProfile}
+                  className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>{isUpdatingProfile ? 'Saving...' : 'Save Changes'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

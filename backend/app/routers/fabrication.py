@@ -144,6 +144,15 @@ def get_fabrication_requests(
         w_users = db.query(models.User.user_id, models.User.full_name).filter(models.User.user_id.in_(worker_ids)).all()
         worker_name_map = {u[0]: u[1] for u in w_users}
 
+    # Pre-fetch all quality inspections for these fabrication requests
+    all_inspections = db.query(models.QualityInspection).filter(
+        models.QualityInspection.order_type.in_(["Fabrication", "FABRICATION"]),
+        models.QualityInspection.order_id.in_(fab_ids)
+    ).order_by(models.QualityInspection.inspected_at.desc()).all()
+    inspections_by_fab = {}
+    for insp in all_inspections:
+        inspections_by_fab.setdefault(insp.order_id, []).append(insp)
+
     stages_by_fab = {}
     for st in all_stages:
         stages_by_fab.setdefault(st.order_id, []).append(st)
@@ -208,11 +217,38 @@ def get_fabrication_requests(
             if not active_stg_obj and st_dict["status"] in ["IN_PROGRESS", "PAUSED", "ASSIGNED"]:
                 active_stg_obj = st_dict
 
-        # Overall fabrication progress
-        if stages_list:
-            total_stg_pct = sum(s["progress_percentage"] for s in stages_list) // len(stages_list)
+        if not active_stg_obj and stages_list:
+            active_stg_obj = stages_list[-1]
+
+        # Determine authoritative QC status
+        insps = inspections_by_fab.get(f.fabrication_id, [])
+        latest_insp = insps[0] if insps else None
+        
+        qc_status = "NOT_APPLICABLE"
+        fst_upper = (f.status or "").upper().strip()
+        all_stages_done = len(stages_list) > 0 and all(s["status"] == "COMPLETED" for s in stages_list)
+
+        if latest_insp:
+            qc_status = "QC_PASSED" if latest_insp.result == "PASS" else "QC_FAILED"
+        elif fst_upper in ["QC_PENDING", "QUALITY CHECK", "QUALITY_CONTROL"] or all_stages_done:
+            qc_status = "QC_PENDING"
+        elif fst_upper == "COMPLETED":
+            qc_status = "QC_PASSED"
+
+        # Overall fabrication progress respects QC Gate:
+        # A request is completed ONLY after QC is done and passed!
+        if qc_status == "QC_PASSED" or fst_upper == "COMPLETED":
+            total_stg_pct = 100
+        elif qc_status == "QC_PENDING" or fst_upper in ["QC_PENDING", "QUALITY CHECK", "QUALITY_CONTROL"] or all_stages_done:
+            total_stg_pct = 90
+        elif qc_status == "QC_FAILED" or fst_upper == "REWORK_REQUIRED":
+            total_stg_pct = 75
+        elif stages_list:
+            total_stg_pct = min(85, sum(s["progress_percentage"] for s in stages_list) // len(stages_list))
         else:
-            total_stg_pct = 100 if f.status == "COMPLETED" else (40 if f.status in ["IN_PRODUCTION", "PAID"] else 15)
+            total_stg_pct = 40 if fst_upper in ["IN_PRODUCTION", "PAID"] else 15
+
+        eff_status = "QC_PENDING" if (all_stages_done and fst_upper not in ["COMPLETED", "QC_PASSED"]) else f.status
 
         res.append({
             "fabrication_id": f.fabrication_id,
@@ -230,7 +266,8 @@ def get_fabrication_requests(
             "cutting_layout": f.cutting_layout,
             "deadline": f.deadline.isoformat() if f.deadline else None,
             "estimated_price": float(f.estimated_price) if f.estimated_price else None,
-            "status": f.status,
+            "status": eff_status,
+            "qc_status": qc_status,
             "payment_status": f.payment_status or "Pending",
             "material_arrival_mode": f.material_arrival_mode or "CUSTOMER_BRINGS",
             "material_pickup_address": f.material_pickup_address,
@@ -374,6 +411,19 @@ def update_fabrication_status(fabrication_id: int, payload: FabricationStatusUpd
     fab = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == fabrication_id).first()
     if not fab:
         raise HTTPException(status_code=404, detail="Fabrication request not found")
+
+    # Enforce QC Gate: Fabrication request can only be Completed after QC inspection is passed
+    if payload.status.upper() in ["COMPLETED", "READY_FOR_PACKING", "READY_FOR_DISPATCH"]:
+        has_passed_qc = db.query(models.QualityInspection).filter(
+            models.QualityInspection.order_type.in_(["Fabrication", "FABRICATION"]),
+            models.QualityInspection.order_id == fabrication_id,
+            models.QualityInspection.result == "PASS"
+        ).first()
+        if not has_passed_qc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Fabrication request cannot be marked Completed without passing quality inspection (QC_PENDING required)."
+            )
 
     fab.status = payload.status
     if payload.estimated_price is not None:

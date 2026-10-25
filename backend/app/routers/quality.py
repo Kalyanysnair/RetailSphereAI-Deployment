@@ -642,11 +642,21 @@ def record_quality_inspection(
         if payload.order_type.strip().capitalize() in ["Custom", "Customization"]:
             ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == payload.order_id).first()
             if ord_obj:
-                ord_obj.order_status = "Ready for Packing"
+                ord_obj.order_status = "Completed"
+                # Add completion progress entry
+                qc_prog = models.ProductionProgress(
+                    custom_order_id=ord_obj.custom_order_id,
+                    updated_by=valid_inspector_id,
+                    stage="Completed (QC Passed)",
+                    progress_percentage=100,
+                    remarks="Quality Control inspection passed. Order completed and permitted for dispatch.",
+                    updated_at=datetime.utcnow()
+                )
+                db.add(qc_prog)
         elif payload.order_type.strip().capitalize() == "Fabrication":
             fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == payload.order_id).first()
             if fab_obj:
-                fab_obj.status = "Ready for Packing"
+                fab_obj.status = "COMPLETED"
 
         # If this is a repeat QC for a linked rework ticket
         if payload.rework_ticket_id:
@@ -662,6 +672,11 @@ def record_quality_inspection(
                 rework_ticket_obj = rw
 
         db.commit()
+        try:
+            from app.routers.production import invalidate_custom_orders_cache
+            invalidate_custom_orders_cache()
+        except Exception:
+            pass
 
     elif res_upper == "FAIL":
         # Handle failed QC inspection: Automatically create or update Rework Ticket

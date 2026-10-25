@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
 import {
@@ -78,6 +78,17 @@ export const CarrierDashboardPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'dashboard' | 'current_deliveries' | 'previous_deliveries' | 'personnel' | 'fleet_vehicles' | 'agreements' | 'coverage_zones'
   >('dashboard');
+
+  const mainContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [activeTab]);
 
   // Loading & Error States
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -785,7 +796,7 @@ export const CarrierDashboardPage: React.FC = () => {
       </aside>
 
       {/* MAIN RIGHT CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div ref={mainContentRef} className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Mobile Navigation Header */}
         <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-2">

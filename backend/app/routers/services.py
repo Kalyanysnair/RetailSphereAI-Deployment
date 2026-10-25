@@ -52,6 +52,16 @@ def get_service_requests(
             query = query.filter(models.ServiceRequest.customer_id == user.customer_profile.customer_id)
 
     requests = query.order_by(models.ServiceRequest.created_at.desc()).all()
+    today_date = date.today()
+    updated_records = False
+    for s in requests:
+        if s.preferred_date and s.preferred_date < today_date:
+            if s.status not in ["COMPLETED", "Completed", "CANCELLED", "Cancelled", "Request Cancellation"]:
+                s.status = "Request Cancellation"
+                updated_records = True
+    if updated_records:
+        db.commit()
+
     res = []
     for s in requests:
         cust = s.customer

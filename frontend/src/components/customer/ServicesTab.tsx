@@ -1,10 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wrench, Plus, MapPin, Calendar, Clock, CheckCircle2, User, Phone, FileText, Navigation, Map, Compass, Check } from 'lucide-react';
+import { Wrench, Plus, MapPin, Calendar, Clock, CheckCircle2, User, Phone, FileText, Navigation, Map, Compass, Check, X } from 'lucide-react';
 import { LeafletMapPicker } from '../common/LeafletMapPicker';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { validateAddressApi } from '../../services/api';
 import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
+
+export const isServiceDateExceeded = (preferredDateStr?: string): boolean => {
+  if (!preferredDateStr) return false;
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(preferredDateStr);
+    target.setHours(0, 0, 0, 0);
+    return target < today;
+  } catch {
+    return false;
+  }
+};
 
 export interface ServiceItem {
   service_id: number;
@@ -40,6 +53,8 @@ export const ServicesTab: React.FC = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [cancellingServiceId, setCancellingServiceId] = useState<number | null>(null);
 
   // Form State
   const [category, setCategory] = useState('On-Site Carpentry & Structural Repair');
@@ -327,8 +342,43 @@ export const ServicesTab: React.FC = () => {
     }
   };
 
+  const handleCancelService = async (srvId: number) => {
+    if (!window.confirm('Are you sure you want to cancel this on-site service appointment?')) return;
+    setCancellingServiceId(srvId);
+    try {
+      // Optimistically update local state immediately so user sees the card update to Cancelled right away
+      setServices((prev) =>
+        prev.map((s) => (s.service_id === srvId ? { ...s, status: 'Cancelled' } : s))
+      );
+
+      const res = await fetch(`/api/services/requests/${srvId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Cancelled' }),
+      });
+
+      if (res.ok) {
+        setToastMessage('On-site service appointment cancelled successfully.');
+        setTimeout(() => setToastMessage(null), 3500);
+      }
+      await fetchServices();
+    } catch (err) {
+      console.error('Cancel error:', err);
+      await fetchServices();
+    } finally {
+      setCancellingServiceId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Toast Notice */}
+      {toastMessage && (
+        <div className="fixed top-20 right-6 z-50 bg-[#38A132] text-white px-5 py-3 rounded-2xl shadow-xl font-extrabold text-xs flex items-center gap-2 animate-bounce">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
       {/* Hero Banner */}
       <div className="bg-gradient-to-r from-[#FAF8F5] via-[#F4ECE1] to-[#FAF8F5] border-2 border-[#E2D7CB] text-[#1A1410] p-6 sm:p-8 rounded-3xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -368,78 +418,112 @@ export const ServicesTab: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {services.map((s) => (
-            <div key={s.service_id} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm hover:shadow-xl transition-all space-y-4 flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-                  <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
-                    SRV-#{s.service_id}
-                  </span>
-                  <span className={`${getStatusBadgeColor(s.status)} text-[10px] font-extrabold px-2.5 py-1 rounded-full border`}>
-                    {s.payment_status === 'Paid' ? `Paid ✓ (₹${(s.estimated_price || 0).toLocaleString('en-IN')})` : formatStatusLabel(s.status)}
-                  </span>
-                </div>
+          {services.map((s) => {
+            const isExceeded = isServiceDateExceeded(s.preferred_date);
+            const isFinal = s.status === 'Cancelled' || s.status === 'CANCELLED' || s.status === 'Completed' || s.status === 'COMPLETED';
+            const effectiveStatus = (isExceeded && !isFinal) ? 'Request Cancellation' : s.status;
 
-                <div>
-                  <h4 className="text-sm font-extrabold text-[#2C241D]">{s.service_category}</h4>
-                  <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5 flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-[#48A63E]" /> {s.address}, {s.city}
+            return (
+              <div key={s.service_id} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm hover:shadow-xl transition-all space-y-4 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                    <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
+                      SRV-#{s.service_id}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {isExceeded && !isFinal && (
+                        <span className="text-[10px] font-extrabold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          ⚠️ Date Exceeded
+                        </span>
+                      )}
+                      <span className={`${getStatusBadgeColor(effectiveStatus)} text-[10px] font-extrabold px-2.5 py-1 rounded-full border`}>
+                        {s.payment_status === 'Paid' ? `Paid ✓ (₹${(s.estimated_price || 0).toLocaleString('en-IN')})` : formatStatusLabel(effectiveStatus)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#2C241D]">{s.service_category}</h4>
+                    <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5 flex items-center gap-1">
+                      <MapPin className="w-3 h-3 text-[#48A63E]" /> {s.address}, {s.city}
+                    </p>
+                  </div>
+
+                  <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5 font-medium">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[#7A6C5E] flex items-center gap-1"><Calendar className="w-3 h-3 text-[#48A63E]" /> Preferred Date:</span>
+                      <span className={`font-bold ${isExceeded && !isFinal ? 'text-rose-600 underline' : 'text-[#2C241D]'}`}>
+                        {s.preferred_date || 'Flexible'} {isExceeded && !isFinal && '(Exceeded)'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[#7A6C5E] flex items-center gap-1"><Clock className="w-3 h-3 text-[#48A63E]" /> Preferred Time:</span>
+                      <span className="font-semibold text-[#2C241D]">{s.preferred_time}</span>
+                    </div>
+
+                    {s.jobs && s.jobs.length > 0 && (
+                      <div className="pt-2 border-t border-[#E2D7CB] space-y-1">
+                        <span className="text-[10px] text-[#48A63E] font-extrabold uppercase">Assigned Worker:</span>
+                        <p className="font-extrabold text-[#2C241D]">{s.jobs[0].worker_name}</p>
+                      </div>
+                    )}
+
+                    {s.estimated_price && (
+                      <div className={`flex justify-between items-center pt-2 border-t ${s.payment_status === 'Paid' ? 'border-[#38A132]/30 bg-[#38A132]/10 -mx-3 -mb-3 p-3 rounded-b-2xl' : 'border-[#E2D7CB]'}`}>
+                        <span className="text-[#7A6C5E] font-bold">
+                          {s.payment_status === 'Paid' ? <span className="text-[#2E8B29] font-black">✓ Total Amount Paid:</span> : 'Service Quote / Total:'}
+                        </span>
+                        <span className={`font-black text-sm ${s.payment_status === 'Paid' ? 'text-[#2E8B29]' : 'text-[#38A132]'}`}>
+                          ₹{s.estimated_price.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-[#7A6C5E] bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] italic">
+                    "{s.description}"
                   </p>
                 </div>
 
-                <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5 font-medium">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#7A6C5E] flex items-center gap-1"><Calendar className="w-3 h-3 text-[#48A63E]" /> Preferred Date:</span>
-                    <span className="font-bold text-[#2C241D]">{s.preferred_date || 'Flexible'}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#7A6C5E] flex items-center gap-1"><Clock className="w-3 h-3 text-[#48A63E]" /> Preferred Time:</span>
-                    <span className="font-semibold text-[#2C241D]">{s.preferred_time}</span>
-                  </div>
-
-                  {s.jobs && s.jobs.length > 0 && (
-                    <div className="pt-2 border-t border-[#E2D7CB] space-y-1">
-                      <span className="text-[10px] text-[#48A63E] font-extrabold uppercase">Assigned Worker:</span>
-                      <p className="font-extrabold text-[#2C241D]">{s.jobs[0].worker_name}</p>
-                    </div>
-                  )}
-
-                  {s.estimated_price && (
-                    <div className={`flex justify-between items-center pt-2 border-t ${s.payment_status === 'Paid' ? 'border-[#38A132]/30 bg-[#38A132]/10 -mx-3 -mb-3 p-3 rounded-b-2xl' : 'border-[#E2D7CB]'}`}>
-                      <span className="text-[#7A6C5E] font-bold">
-                        {s.payment_status === 'Paid' ? <span className="text-[#2E8B29] font-black">✓ Total Amount Paid:</span> : 'Service Quote / Total:'}
-                      </span>
-                      <span className={`font-black text-sm ${s.payment_status === 'Paid' ? 'text-[#2E8B29]' : 'text-[#38A132]'}`}>
-                        ₹{s.estimated_price.toLocaleString('en-IN')}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <p className="text-[11px] text-[#7A6C5E] bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] italic">
-                  "{s.description}"
-                </p>
-              </div>
-
-              <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between">
-                <span className="text-[10px] text-[#9E9082] font-semibold">
-                  {s.created_at ? new Date(s.created_at).toLocaleDateString() : 'Recent'}
-                </span>
-                {s.payment_status === 'Paid' ? (
-                  <span className="text-[11px] font-black text-[#2E8B29] bg-[#38A132]/15 border border-[#38A132]/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                    ✓ Paid: ₹{(s.estimated_price || 0).toLocaleString('en-IN')}
+                <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[10px] text-[#9E9082] font-semibold">
+                    {s.created_at ? new Date(s.created_at).toLocaleDateString() : 'Recent'}
                   </span>
-                ) : s.estimated_price && s.status === 'QUOTED' ? (
-                  <button
-                    onClick={() => handlePayService(s)}
-                    className="px-4 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-sm"
-                  >
-                    Approve & Pay ₹{s.estimated_price.toLocaleString('en-IN')}
-                  </button>
-                ) : null}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {s.payment_status === 'Paid' ? (
+                      <span className="text-[11px] font-black text-[#2E8B29] bg-[#38A132]/15 border border-[#38A132]/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        ✓ Paid: ₹{(s.estimated_price || 0).toLocaleString('en-IN')}
+                      </span>
+                    ) : s.estimated_price && s.status === 'QUOTED' && effectiveStatus !== 'Request Cancellation' ? (
+                      <button
+                        onClick={() => handlePayService(s)}
+                        className="px-4 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-sm"
+                      >
+                        Approve & Pay ₹{s.estimated_price.toLocaleString('en-IN')}
+                      </button>
+                    ) : null}
+
+                    {s.status === 'Cancelled' || s.status === 'CANCELLED' ? (
+                      <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1 rounded-xl">
+                        Cancelled
+                      </span>
+                    ) : !isFinal && s.payment_status !== 'Paid' ? (
+                      <button
+                        type="button"
+                        disabled={cancellingServiceId === s.service_id}
+                        onClick={() => handleCancelService(s.service_id)}
+                        className="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                        title="Request cancellation for this on-site service"
+                      >
+                        <X className="w-3.5 h-3.5 text-rose-600" />
+                        <span>{cancellingServiceId === s.service_id ? 'Cancelling...' : 'Request Cancellation'}</span>
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -516,6 +516,21 @@ export const MyActivityTab: React.FC = () => {
     navigate('/cart');
   };
 
+  const handleCancelServiceActivity = async (srvId: number) => {
+    if (!window.confirm('Are you sure you want to cancel this on-site service appointment?')) return;
+    try {
+      setServices(prev => prev.map(s => s.service_id === srvId ? { ...s, status: 'Cancelled' } : s));
+      await fetch(`/api/services/requests/${srvId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Cancelled' })
+      });
+      loadAllActivities();
+    } catch (e) {
+      console.warn('Cancel activity service error:', e);
+    }
+  };
+
   const navigateToTab = (tabName: string) => {
     window.dispatchEvent(new CustomEvent('change-customer-tab', { detail: tabName }));
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -875,95 +890,105 @@ export const MyActivityTab: React.FC = () => {
                           key={ord.custom_order_id}
                           className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-3xl p-4 shadow-sm hover:shadow-md hover:border-[#9C7A4B]/50 transition-all duration-300 flex flex-col justify-between space-y-3"
                         >
-                          <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2.5">
-                            <span className="text-xs font-mono font-black text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
-                              #{ord.custom_order_id} • {ord.furniture_type}
-                            </span>
-                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${getStatusBadgeColor(ord.order_status)}`}>
-                              {formatStatusLabel(ord.order_status)}
-                            </span>
-                          </div>
-
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                              {refImgs.length > 0 ? (
-                                <img
-                                  src={refImgs[0]}
-                                  alt={ord.furniture_type}
-                                  onClick={() => openImageInNewTab(refImgs[0])}
-                                  className="w-14 h-14 rounded-2xl object-cover border-2 border-[#E2D7CB] shadow-xs shrink-0 cursor-pointer"
-                                />
-                              ) : (
-                                <div className="w-14 h-14 rounded-2xl bg-[#FAF7F2] border-2 border-[#E2D7CB] flex items-center justify-center text-[#9C7A4B] shrink-0">
-                                  <Layers className="w-6 h-6 opacity-70" />
-                                </div>
-                              )}
-
-                              <div className="text-[11px] text-[#5C4E42] space-y-0.5">
-                                <div>Wood: <strong>{ord.material}</strong></div>
-                                <div>Finish: <strong>{ord.color}</strong></div>
-                                <div>Size: <strong>{ord.dimensions}</strong></div>
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0">
-                              <span className="text-sm font-black text-[#38A132] block">
-                                {ord.estimated_price ? formatCurrency(ord.estimated_price) : 'Reviewing'}
-                              </span>
-                              {(ord.payment_status === 'Paid' || ord.order_status === 'Paid') ? (
-                                <button
-                                  onClick={() => downloadPaymentReceipt(ord)}
-                                  className="text-[10px] font-black text-[#38A132] hover:underline inline-flex items-center gap-0.5 mt-1 cursor-pointer"
-                                >
-                                  <Download className="w-3 h-3" />
-                                  <span>Receipt</span>
-                                </button>
-                              ) : ord.estimated_price ? (
-                                <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
-                                  <button
-                                    onClick={() => handlePayCustomOrder(ord)}
-                                    className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
-                                  >
-                                    <CreditCard className="w-3 h-3" />
-                                    <span>Pay Now</span>
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          {/* Workshop Live Progress Bar & Step Breakdown */}
                           {(() => {
+                            const isQcPending = ord.order_status === 'QC_PENDING' || ord.order_status === 'QC Pending' || (ord as any).qc_status === 'QC_PENDING';
+                            const isCompleted = ord.order_status === 'Completed' || (ord as any).qc_status === 'QC_PASSED';
                             const sections = getStageSections(ord.current_stage || ord.furniture_type, ord.furniture_type);
                             const totalSections = sections.length;
                             const isPaused = (ord.order_status || '').toLowerCase().includes('paused') || (ord as any).is_paused;
-                            const progressPct = ord.progress_percentage ?? ((stageIdx + 1) * 20);
+                            const progressPct = isCompleted ? 100 : isQcPending ? 90 : (ord.progress_percentage ?? ((stageIdx + 1) * 20));
 
                             return (
-                              <div className="pt-2 border-t border-[#EFE7DE] space-y-2">
-                                {isPaused && (
-                                  <div className="p-2 rounded-xl bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-bold flex items-center gap-1.5">
-                                    <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                                    <span>Production Paused: Worker temporarily paused stage</span>
-                                  </div>
-                                )}
-
-                                <div className="flex items-center justify-between text-[10px]">
-                                  <span className="text-[#7A6C5E] font-bold flex items-center gap-1">
-                                    <Clock className="w-3 h-3 text-[#38A132]" /> {ord.current_stage || 'Manufacturing Stage'}
+                              <>
+                                <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2.5">
+                                  <span className="text-xs font-mono font-black text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
+                                    #{ord.custom_order_id} • {ord.furniture_type}
                                   </span>
-                                  <span className="font-black text-[#38A132]">
-                                    {progressPct}% Complete
+                                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+                                    isCompleted
+                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                      : isQcPending
+                                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                      : getStatusBadgeColor(ord.order_status)
+                                  }`}>
+                                    {isCompleted ? 'Completed (QC Passed)' : isQcPending ? 'QC Inspection Pending' : formatStatusLabel(ord.order_status)}
                                   </span>
                                 </div>
 
-                                <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
-                                  <div
-                                    className={`h-1.5 rounded-full transition-all duration-300 ${
-                                      isPaused ? 'bg-amber-500' : progressPct >= 100 ? 'bg-[#38A132]' : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
-                                    }`}
-                                    style={{ width: `${progressPct}%` }}
-                                  />
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-3">
+                                    {refImgs.length > 0 ? (
+                                      <img
+                                        src={refImgs[0]}
+                                        alt={ord.furniture_type}
+                                        onClick={() => openImageInNewTab(refImgs[0])}
+                                        className="w-14 h-14 rounded-2xl object-cover border-2 border-[#E2D7CB] shadow-xs shrink-0 cursor-pointer"
+                                      />
+                                    ) : (
+                                      <div className="w-14 h-14 rounded-2xl bg-[#FAF7F2] border-2 border-[#E2D7CB] flex items-center justify-center text-[#9C7A4B] shrink-0">
+                                        <Layers className="w-6 h-6 opacity-70" />
+                                      </div>
+                                    )}
+
+                                    <div className="text-[11px] text-[#5C4E42] space-y-0.5">
+                                      <div>Wood: <strong>{ord.material}</strong></div>
+                                      <div>Finish: <strong>{ord.color}</strong></div>
+                                      <div>Size: <strong>{ord.dimensions}</strong></div>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-right shrink-0">
+                                    <span className="text-sm font-black text-[#38A132] block">
+                                      {ord.estimated_price ? formatCurrency(ord.estimated_price) : 'Reviewing'}
+                                    </span>
+                                    {(ord.payment_status === 'Paid' || ord.order_status === 'Paid') ? (
+                                      <button
+                                        onClick={() => downloadPaymentReceipt(ord)}
+                                        className="text-[10px] font-black text-[#38A132] hover:underline inline-flex items-center gap-0.5 mt-1 cursor-pointer"
+                                      >
+                                        <Download className="w-3 h-3" />
+                                        <span>Receipt</span>
+                                      </button>
+                                    ) : ord.estimated_price ? (
+                                      <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
+                                        <button
+                                          onClick={() => handlePayCustomOrder(ord)}
+                                          className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                                        >
+                                          <CreditCard className="w-3 h-3" />
+                                          <span>Pay Now</span>
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                {/* Workshop Live Progress Bar & Step Breakdown */}
+                                <div className="pt-2 border-t border-[#EFE7DE] space-y-2">
+                                  {isPaused && (
+                                    <div className="p-2 rounded-xl bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-bold flex items-center gap-1.5">
+                                      <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                      <span>Production Paused: Worker temporarily paused stage</span>
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-[#7A6C5E] font-bold flex items-center gap-1">
+                                      <Clock className="w-3 h-3 text-[#38A132]" /> {isCompleted ? 'Completed (QC Passed)' : isQcPending ? 'Quality Inspection Pending' : (ord.current_stage || 'Manufacturing Stage')}
+                                    </span>
+                                    <span className="font-black text-[#38A132]">
+                                      {progressPct}% Complete
+                                    </span>
+                                  </div>
+
+                                  <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
+                                    <div
+                                      className={`h-1.5 rounded-full transition-all duration-300 ${
+                                        isPaused ? 'bg-amber-500' : progressPct >= 100 ? 'bg-[#38A132]' : isQcPending ? 'bg-amber-500 animate-pulse' : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
+                                      }`}
+                                      style={{ width: `${progressPct}%` }}
+                                    />
+                                  </div>
                                 </div>
 
                                 {/* Procedural Stepper Ribbon */}
@@ -983,7 +1008,7 @@ export const MyActivityTab: React.FC = () => {
                                     );
                                   })}
                                 </div>
-                              </div>
+                              </>
                             );
                           })()}
                         </div>
@@ -1024,8 +1049,12 @@ export const MyActivityTab: React.FC = () => {
                       const totalSections = sections.length;
                       const isPaused = Boolean(f.is_paused || (activeStg && activeStg.status === 'PAUSED'));
                       const pauseReason = f.pause_reason || (activeStg && activeStg.pause_reason) || 'Temporarily paused for curing/drying';
-                      const progressPct = f.status === 'COMPLETED' || (activeStg && activeStg.status === 'COMPLETED')
+                      const isQcPending = f.status === 'QC_PENDING' || f.status === 'QC Pending' || (f as any).qc_status === 'QC_PENDING';
+                      const isCompleted = f.status === 'COMPLETED' || f.status === 'Completed' || (f as any).qc_status === 'QC_PASSED';
+                      const progressPct = isCompleted
                         ? 100
+                        : isQcPending
+                        ? 90
                         : totalSections > 0
                         ? Math.round((checkedCount / totalSections) * 100)
                         : (f.overall_progress_percentage || (activeStg ? activeStg.progress_percentage : 0));
@@ -1042,11 +1071,15 @@ export const MyActivityTab: React.FC = () => {
                             <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
                               isPaused
                                 ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : isCompleted
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : isQcPending
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
                                 : f.payment_status === 'Paid' || f.status === 'PAID'
                                 ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
                                 : getStatusBadgeColor(f.status)
                             }`}>
-                              {isPaused ? '⏸️ PAUSED' : f.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(f.status)}
+                              {isPaused ? '⏸️ PAUSED' : isCompleted ? 'Completed (QC Passed)' : isQcPending ? 'QC Inspection Pending' : f.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(f.status)}
                             </span>
                           </div>
 
@@ -1093,7 +1126,7 @@ export const MyActivityTab: React.FC = () => {
                             <div className="flex justify-between items-center text-[10px]">
                               <span className="text-[#7A6C5E] font-bold flex items-center gap-1">
                                 <Hammer className="w-3 h-3 text-[#38A132]" />
-                                <span>{stgName}</span>
+                                <span>{isCompleted ? 'Completed (QC Passed)' : isQcPending ? 'Quality Inspection Pending' : stgName}</span>
                               </span>
                               <span className="font-mono text-xs font-black text-[#38A132]">{progressPct}%</span>
                             </div>
@@ -1101,7 +1134,7 @@ export const MyActivityTab: React.FC = () => {
                             <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
                               <div
                                 className={`h-1.5 rounded-full transition-all duration-300 ${
-                                  isPaused ? 'bg-amber-500' : progressPct >= 100 ? 'bg-[#38A132]' : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
+                                  isPaused ? 'bg-amber-500' : progressPct >= 100 ? 'bg-[#38A132]' : isQcPending ? 'bg-amber-500 animate-pulse' : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
                                 }`}
                                 style={{ width: `${progressPct}%` }}
                               />
@@ -1154,23 +1187,46 @@ export const MyActivityTab: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {filteredServices.map((s) => (
-                      <div
-                        key={s.service_id}
-                        className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-3xl p-4 shadow-sm hover:shadow-md transition-all space-y-2"
-                      >
-                        <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
-                          <span className="text-xs font-mono font-black text-[#2C241D]">
-                            #{s.service_id} • {s.service_category}
-                          </span>
-                          <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
-                            s.payment_status === 'Paid' || s.status === 'PAID'
-                              ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
-                              : getStatusBadgeColor(s.status)
-                          }`}>
-                            {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(s.status)}
-                          </span>
-                        </div>
+                    {filteredServices.map((s) => {
+                      const isExceeded = (() => {
+                        if (!s.preferred_date) return false;
+                        try {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const target = new Date(s.preferred_date);
+                          target.setHours(0, 0, 0, 0);
+                          return target < today;
+                        } catch {
+                          return false;
+                        }
+                      })();
+                      const isFinal = s.status === 'Cancelled' || s.status === 'CANCELLED' || s.status === 'Completed' || s.status === 'COMPLETED';
+                      const effectiveStatus = (isExceeded && !isFinal) ? 'Request Cancellation' : s.status;
+
+                      return (
+                        <div
+                          key={s.service_id}
+                          className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-3xl p-4 shadow-sm hover:shadow-md transition-all space-y-2"
+                        >
+                          <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
+                            <span className="text-xs font-mono font-black text-[#2C241D]">
+                              #{s.service_id} • {s.service_category}
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {isExceeded && !isFinal && (
+                                <span className="text-[9px] font-extrabold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                  ⚠️ Date Exceeded
+                                </span>
+                              )}
+                              <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+                                s.payment_status === 'Paid' || s.status === 'PAID'
+                                  ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
+                                  : getStatusBadgeColor(effectiveStatus)
+                              }`}>
+                                {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(effectiveStatus)}
+                              </span>
+                            </div>
+                          </div>
 
                         <div className="text-[11px] text-[#6E6458] flex justify-between items-center">
                           <span className="truncate max-w-[160px]">{s.preferred_date ? `Date: ${s.preferred_date}` : s.address}</span>
@@ -1181,7 +1237,7 @@ export const MyActivityTab: React.FC = () => {
                             {s.estimated_price && s.payment_status !== 'Paid' && (s.status === 'QUOTED' || s.status === 'APPROVED') && (
                               <div className="flex items-center gap-1.5">
                                 <button
-                                  onClick={() => handlePayServiceActivity(s)}
+                                  onClick={(e) => handleAddServiceToCart(s, e)}
                                   className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1"
                                 >
                                   <CreditCard className="w-3 h-3" />
@@ -1189,10 +1245,26 @@ export const MyActivityTab: React.FC = () => {
                                 </button>
                               </div>
                             )}
+                            {s.status === 'Cancelled' || s.status === 'CANCELLED' ? (
+                              <span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                Cancelled
+                              </span>
+                            ) : !isFinal && s.payment_status !== 'Paid' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelServiceActivity(s.service_id)}
+                                className="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-700 text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 active:scale-95"
+                                title="Request cancellation"
+                              >
+                                <X className="w-3 h-3 text-rose-600" />
+                                <span>Request Cancellation</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
-                    ))}
+                    );
+                  })}
                   </div>
                 </div>
               )}

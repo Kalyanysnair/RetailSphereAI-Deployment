@@ -80,6 +80,7 @@ export interface CustomOrderData {
   production_stage?: string;
   progress_percent?: number;
   progress_remarks?: string;
+  qc_status?: string;
 }
 
 export interface WorkerData {

@@ -1,5 +1,5 @@
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload, defer
@@ -180,6 +180,16 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
         .limit(6)
         .all()
     )
+    today_date = date.today()
+    srv_summary_updated = False
+    for s in latest_srvs:
+        if s.preferred_date and s.preferred_date < today_date:
+            if s.status not in ["COMPLETED", "Completed", "CANCELLED", "Cancelled", "Request Cancellation"]:
+                s.status = "Request Cancellation"
+                srv_summary_updated = True
+    if srv_summary_updated:
+        db.commit()
+
     for s in latest_srvs:
         cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
         recent_activity.append({
@@ -341,6 +351,16 @@ def get_unified_request_inbox(
                 q_srv = q_srv.filter(models.ServiceRequest.review_status == status_filter.upper())
 
         srvs = q_srv.order_by(models.ServiceRequest.created_at.desc()).all()
+        today_date = date.today()
+        srv_changed = False
+        for s in srvs:
+            if s.preferred_date and s.preferred_date < today_date:
+                if s.status not in ["COMPLETED", "Completed", "CANCELLED", "Cancelled", "Request Cancellation"]:
+                    s.status = "Request Cancellation"
+                    srv_changed = True
+        if srv_changed:
+            db.commit()
+
         for s in srvs:
             cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
             cust_email = s.customer.user.email if s.customer and s.customer.user else ""
@@ -522,6 +542,15 @@ def review_service_request(service_id: int, payload: ReviewRequestPayload, db: S
                 user_id=user_to_notify,
                 title=f"Service Booking Approved — #ONS-{srv_req.service_id:04d}",
                 message=f"Your on-site service booking for '{srv_req.service_category}' has been approved by Retail Staff. An artisan will be assigned shortly."
+            )
+    elif rev_st in ["REJECTED", "CANCELLED", "CANCEL"]:
+        srv_req.status = "Cancelled"
+        if user_to_notify:
+            notify_user(
+                db,
+                user_id=user_to_notify,
+                title=f"Service Booking Cancelled — #ONS-{srv_req.service_id:04d}",
+                message=f"Your on-site service booking for '{srv_req.service_category}' has been cancelled."
             )
 
     db.commit()

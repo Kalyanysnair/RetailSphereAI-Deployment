@@ -814,6 +814,9 @@ export const FabricationTab: React.FC = () => {
             const finalTotalAmount = quotePrice + totalLogistics;
             const isPaid = r.payment_status === 'Paid';
             const isStepsExpanded = Boolean(expandedStepsMap[r.fabrication_id]);
+            const allStagesDone = r.production_stages && r.production_stages.length > 0 && r.production_stages.every(s => s.status === 'COMPLETED');
+            const isQcPending = r.status === 'QC_PENDING' || (r as any).qc_status === 'QC_PENDING' || (allStagesDone && r.status !== 'COMPLETED');
+            const isCompleted = r.status === 'COMPLETED' || (r as any).qc_status === 'QC_PASSED';
 
             return (
               <div
@@ -826,8 +829,18 @@ export const FabricationTab: React.FC = () => {
                     <span className="font-mono text-[10.5px] font-black text-[#38A132] bg-[#38A132]/10 px-2.5 py-1 rounded-lg border border-[#38A132]/25 shadow-2xs">
                       FAB-#{r.fabrication_id}
                     </span>
-                    <span className={`${getStatusBadgeColor(r.status)} text-[10.5px] font-black px-2.5 py-0.5 rounded-full border shadow-2xs flex items-center gap-1`}>
-                      {isPaid ? `Paid ✓ (₹${finalTotalAmount.toLocaleString('en-IN')})` : formatStatusLabel(r.status)}
+                    <span className={`text-[10.5px] font-black px-2.5 py-0.5 rounded-full border shadow-2xs flex items-center gap-1 ${
+                      isCompleted
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : isQcPending
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                        : r.status === 'IN_PRODUCTION'
+                        ? 'bg-purple-100 text-purple-800 border-purple-300'
+                        : isPaid
+                        ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
+                        : getStatusBadgeColor(r.status)
+                    }`}>
+                      {isCompleted ? '✓ Completed (QC Passed)' : isQcPending ? '⏳ QC Inspection Pending' : r.status === 'IN_PRODUCTION' ? '⚙️ In Production' : isPaid ? `Paid ✓ (₹${finalTotalAmount.toLocaleString('en-IN')})` : formatStatusLabel(r.status)}
                     </span>
                   </div>
 
@@ -912,20 +925,22 @@ export const FabricationTab: React.FC = () => {
                   )}
 
                   {/* Live Workshop Manufacturing Widget */}
-                  {(isPaid || r.status === 'IN_PRODUCTION' || r.active_stage || (r.production_stages && r.production_stages.length > 0)) && (() => {
+                  {(isPaid || r.status === 'IN_PRODUCTION' || isQcPending || isCompleted || r.active_stage || (r.production_stages && r.production_stages.length > 0)) && (() => {
                     const activeStg = r.active_stage || (r.production_stages && r.production_stages.find(s => s.status === 'IN_PROGRESS' || s.status === 'PAUSED')) || (r.production_stages && r.production_stages[0]);
-                    const stgName = activeStg ? activeStg.stage_name : r.service_type;
-                    const sections = getStageSections(stgName, r.service_type);
-                    const completedSections = activeStg ? (activeStg.completed_sections || []) : [];
+                    const stgName = isCompleted ? 'Completed (QC Passed)' : isQcPending ? (activeStg?.stage_name ? `${activeStg.stage_name} (QC Pending)` : 'Quality Inspection Pending') : (activeStg ? activeStg.stage_name : r.service_type);
+                    const sections = getStageSections(activeStg?.stage_name || stgName, r.service_type);
+                    const completedSections = isCompleted || isQcPending ? sections.map(s => s.id) : (activeStg ? (activeStg.completed_sections || []) : []);
                     const checkedCount = completedSections.length;
                     const totalSections = sections.length;
                     const isPaused = Boolean(r.is_paused || (activeStg && (activeStg.status === 'PAUSED' || activeStg.pause_reason)));
                     const pauseReason = r.pause_reason || (activeStg && activeStg.pause_reason) || 'Temporarily paused by worker for curing/drying';
-                    const progressPct = r.status === 'COMPLETED' || (activeStg && activeStg.status === 'COMPLETED')
+                    const progressPct = isCompleted
                       ? 100
+                      : isQcPending
+                      ? 90
                       : totalSections > 0
-                      ? Math.round((checkedCount / totalSections) * 100)
-                      : (r.overall_progress_percentage || (activeStg ? activeStg.progress_percentage : 0));
+                      ? Math.min(85, Math.round((checkedCount / totalSections) * 85))
+                      : (r.overall_progress_percentage || (activeStg ? activeStg.progress_percentage : 40));
 
                     return (
                       <div className="bg-gradient-to-br from-[#FAF8F5] to-[#F5ECE1]/60 p-3 rounded-2xl border border-[#E2D7CB] space-y-2">
@@ -933,17 +948,19 @@ export const FabricationTab: React.FC = () => {
                           <div className="flex items-center gap-1.5 min-w-0">
                             <Hammer className="w-3.5 h-3.5 text-[#38A132] shrink-0" />
                             <span className="text-xs font-black text-[#1C1814] truncate">
-                              {stgName}
+                              {isCompleted ? 'Completed (QC Passed)' : isQcPending ? (activeStg?.stage_name || 'Timber Dimensioning & Precision CNC Cutting') : (activeStg ? activeStg.stage_name : r.service_type)}
                             </span>
                           </div>
                           <span className={`px-2 py-0.5 rounded-full font-black text-[9.5px] uppercase shrink-0 ${
                             isPaused
                               ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                              : r.status === 'COMPLETED'
-                              ? 'bg-emerald-100 text-emerald-800'
+                              : isCompleted
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : isQcPending
+                              ? 'bg-amber-100 text-amber-900 border border-amber-400'
                               : 'bg-blue-100 text-blue-800'
                           }`}>
-                            {isPaused ? '⏸️ PAUSED' : activeStg ? activeStg.status : 'IN PRODUCTION'}
+                            {isPaused ? '⏸️ PAUSED' : isCompleted ? '✓ QC PASSED' : isQcPending ? '⏳ QC PENDING' : (activeStg ? activeStg.status : 'IN PRODUCTION')}
                           </span>
                         </div>
 
@@ -962,10 +979,18 @@ export const FabricationTab: React.FC = () => {
                           </div>
                         )}
 
+                        {/* QC Pending Informative Alert */}
+                        {isQcPending && (
+                          <div className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[10.5px] font-bold flex items-start gap-1.5">
+                            <Clock className="w-3 h-3 text-amber-700 shrink-0 mt-0.5 animate-pulse" />
+                            <span className="text-[10px] leading-tight font-medium">Workshop machining completed by worker. In queue for Quality Gate inspection under Retail Staff before packing and delivery.</span>
+                          </div>
+                        )}
+
                         {/* Progress Bar & Percentage */}
                         <div>
                           <div className="flex justify-between items-center text-[10px] font-black text-[#7A6C5E] mb-1">
-                            <span>Stage Completion</span>
+                            <span>{isCompleted ? 'Inspection & Build Completed' : isQcPending ? 'Quality Inspection Pending' : 'Stage Completion'}</span>
                             <span className="font-mono text-xs font-black text-[#38A132]">{progressPct}%</span>
                           </div>
                           <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
@@ -973,8 +998,10 @@ export const FabricationTab: React.FC = () => {
                               className={`h-1.5 rounded-full transition-all duration-500 ${
                                 isPaused
                                   ? 'bg-amber-500'
-                                  : progressPct >= 100
+                                  : isCompleted
                                   ? 'bg-[#38A132]'
+                                  : isQcPending
+                                  ? 'bg-amber-500 animate-pulse'
                                   : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
                               }`}
                               style={{ width: `${progressPct}%` }}
@@ -1002,7 +1029,7 @@ export const FabricationTab: React.FC = () => {
                             {isStepsExpanded && (
                               <div className="grid grid-cols-1 gap-1 pt-1.5 animate-fadeIn">
                                 {sections.map((sec, idx) => {
-                                  const isDone = completedSections.includes(sec.id);
+                                  const isDone = completedSections.includes(sec.id) || isCompleted || isQcPending;
                                   return (
                                     <div
                                       key={sec.id}
@@ -1051,9 +1078,21 @@ export const FabricationTab: React.FC = () => {
                     <span className="text-[10px] text-[#9E9082] font-semibold">
                       {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recent'}
                     </span>
-                    {isPaid ? (
+                    {isCompleted ? (
                       <span className="text-[10.5px] font-black text-[#2E8B29] bg-[#38A132]/10 border border-[#38A132]/25 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                        ✓ Paid in Full
+                        ✓ Completed (QC Passed)
+                      </span>
+                    ) : isQcPending ? (
+                      <span className="text-[10.5px] font-black text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        ⏳ QC Inspection Pending
+                      </span>
+                    ) : r.status === 'IN_PRODUCTION' ? (
+                      <span className="text-[10.5px] font-black text-purple-900 bg-purple-50 border border-purple-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        ⚙️ In Production
+                      </span>
+                    ) : isPaid ? (
+                      <span className="text-[10.5px] font-black text-[#2E8B29] bg-[#38A132]/10 border border-[#38A132]/25 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        ✓ Paid & Queued
                       </span>
                     ) : (
                       <span className="text-[10.5px] font-black text-[#2C241D]">

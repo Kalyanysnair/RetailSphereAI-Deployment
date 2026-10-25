@@ -37,7 +37,15 @@
  *      - Each event includes a unique event_id for backend deduplication.
  *      - Buffered events transmit automatically upon reconnection.
  *      - Events are only removed from the queue once the backend confirms receipt.
- *   5. Security & Privacy:
+ *   5. Robust Wi-Fi State Machine:
+ *      - Uses ESP32 Wi-Fi events to track single authoritative connection state.
+ *      - State is CONNECTING when an attempt starts, CONNECTED only after GOT_IP,
+ *        and DISCONNECTED upon a disconnect event.
+ *      - Never calls WiFi.begin() or WiFi.reconnect() while already connecting.
+ *      - 15-second connection timeout safely terminates failed attempt with WiFi.disconnect(false).
+ *      - 10-second controlled retry cooldown without log spam.
+ *      - Detailed diagnostic disconnect reason and IP logging without exposing credentials.
+ *   6. Security & Privacy:
  *      - Authenticated with X-IoT-Key header.
  *      - Credentials are NEVER printed to Serial Monitor.
  * =========================================================================
@@ -45,12 +53,13 @@
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <esp_wifi.h>
 
 // -------------------------------------------------------------------------
 // 1. PIN & HARDWARE CONFIGURATION
 // -------------------------------------------------------------------------
-#define INCREMENT_SENSOR_PIN 27   // GPIO 27: Item entry (increments stock)
-#define DECREMENT_SENSOR_PIN 26   // GPIO 26: Item exit (decrements stock)
+#define INCREMENT_SENSOR_PIN 27   // GPIO 27: Item entry (Sensor A, +1 stock)
+#define DECREMENT_SENSOR_PIN 26   // GPIO 26: Item exit  (Sensor B, -1 stock)
 
 // FC-51 outputs LOW (0) when obstacle is detected, HIGH (1) when clear
 #define OBSTACLE_DETECTED LOW
@@ -63,11 +72,12 @@ const unsigned long SENSOR_COOLDOWN_MS = 1000;
 // 2. NETWORK & BACKEND SERVER CONFIGURATION
 // -------------------------------------------------------------------------
 // Wi-Fi Credentials for local 2.4GHz network:
-const char* WIFI_SSID     = "esp";
-const char* WIFI_PASSWORD = "sabari7777";
+const char* WIFI_SSID     = "Nikunjam";
+const char* WIFI_PASSWORD = "sanal3382";
 
 // Backend Server Configuration:
-const char* SERVER_HOST   = "10.102.99.242"; 
+// Matching current IPv4 address from ipconfig on active Wi-Fi adapter
+const char* SERVER_HOST   = "192.168.1.3"; 
 const int   SERVER_PORT   = 8000;
 
 // Device identification and security key matching backend IOT_DEVICE_SECRET
@@ -81,7 +91,24 @@ const unsigned long HEARTBEAT_INTERVAL_MS = 25000;
 const int HTTP_TIMEOUT_MS = 6000;
 
 // -------------------------------------------------------------------------
-// 3. RUNTIME VARIABLES & EVENT BUFFER
+// 3. WI-FI STATE MACHINE & TIMING DEFINITIONS
+// -------------------------------------------------------------------------
+enum WifiState {
+  WIFI_STATE_IDLE,          // Boot default
+  WIFI_STATE_CONNECTING,    // Connection attempt in progress
+  WIFI_STATE_CONNECTED,     // DHCP IP lease obtained
+  WIFI_STATE_DISCONNECTED   // Offline, cooling down before next retry
+};
+
+volatile WifiState currentWifiState = WIFI_STATE_IDLE;
+unsigned long wifiConnectStartTime  = 0;
+unsigned long lastWifiRetryTime     = 0;
+const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;  // 15s connection timeout
+const unsigned long WIFI_RETRY_INTERVAL_MS  = 10000;  // 10s cooldown between reconnect retries
+uint8_t lastDisconnectReason               = 0;
+
+// -------------------------------------------------------------------------
+// 4. RUNTIME VARIABLES & EVENT BUFFER
 // -------------------------------------------------------------------------
 int stockCount = 0; // Synchronized with backend PostgreSQL
 
@@ -91,7 +118,6 @@ int lastDecrementState = SENSOR_CLEAR;
 unsigned long lastIncrementTime = 0;
 unsigned long lastDecrementTime = 0;
 unsigned long lastHeartbeatTime  = 0;
-unsigned long lastWifiCheckTime  = 0;
 unsigned long eventCounter       = 0;
 
 bool wasConnected       = false;
@@ -121,9 +147,118 @@ bool transmitEvent(QueuedEvent& ev);
 void processEventQueue();
 void sendHeartbeat();
 void syncAuthoritativeStockFromBackend();
+void startWifiConnection();
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
+const char* getDisconnectReasonText(uint8_t reason);
 
 // -------------------------------------------------------------------------
-// 4. HELPER: EXTRACT CURRENT_STOCK FROM JSON RESPONSE (Dependency-free)
+// 5. HELPER: DISCONNECT REASON DECODER
+// -------------------------------------------------------------------------
+const char* getDisconnectReasonText(uint8_t reason) {
+  switch (reason) {
+    case 1:   return "UNSPECIFIED";
+    case 2:   return "AUTH_EXPIRE";
+    case 3:   return "AUTH_LEAVE";
+    case 4:   return "ASSOC_EXPIRE";
+    case 5:   return "ASSOC_TOOMANY";
+    case 6:   return "NOT_AUTHED";
+    case 7:   return "NOT_ASSOCED";
+    case 8:   return "ASSOC_LEAVE";
+    case 9:   return "ASSOC_NOT_AUTHED";
+    case 15:  return "4WAY_HANDSHAKE_TIMEOUT";
+    case 200: return "BEACON_TIMEOUT (AP out of range or weak signal)";
+    case 201: return "NO_AP_FOUND (SSID not broadcasting or wrong band)";
+    case 202: return "AUTH_FAIL (Incorrect password / authentication rejected)";
+    case 203: return "ASSOC_FAIL (Association rejected by AP)";
+    case 204: return "HANDSHAKE_TIMEOUT (WPA handshake failed)";
+    case 205: return "CONNECTION_FAIL";
+    case 206: return "AP_TSF_RESET";
+    case 207: return "ROAMING";
+    default: {
+      const char* name = WiFi.disconnectReasonName((wifi_err_reason_t)reason);
+      if (name != nullptr && strlen(name) > 0) return name;
+      return "UNKNOWN_REASON";
+    }
+  }
+}
+
+// -------------------------------------------------------------------------
+// 6. WI-FI EVENT HANDLER (Authoritative State Machine Driver)
+// -------------------------------------------------------------------------
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_START:
+      Serial.println("[Wi-Fi Event] Station interface started.");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      // Note: STA_CONNECTED indicates L2 association only; L3 IP is NOT yet assigned.
+      Serial.println("[Wi-Fi Event] Associated with Access Point. Awaiting DHCP IP lease...");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      // Authoritative CONNECTED state: IP address is now valid and ready for HTTP
+      currentWifiState = WIFI_STATE_CONNECTED;
+      Serial.println("\n========================================================");
+      Serial.printf("[Wi-Fi Event] Connected Successfully! Assigned IP: %s\n",
+                    WiFi.localIP().toString().c_str());
+      Serial.printf("[Wi-Fi Event] RSSI: %d dBm | Channel: %d\n", WiFi.RSSI(), WiFi.channel());
+      Serial.println("========================================================");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+      uint8_t reason = info.wifi_sta_disconnected.reason;
+      lastDisconnectReason = reason;
+      currentWifiState = WIFI_STATE_DISCONNECTED;
+      lastWifiRetryTime = millis();
+
+      Serial.println("\n--------------------------------------------------------");
+      Serial.printf("[Wi-Fi Event] Disconnected (Reason: %s [Code %d])\n",
+                    getDisconnectReasonText(reason), reason);
+      Serial.println("[Wi-Fi Event] Status: Operating in offline mode. Next retry in 10s.");
+      Serial.println("--------------------------------------------------------");
+      break;
+    }
+
+    case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+      currentWifiState = WIFI_STATE_DISCONNECTED;
+      lastWifiRetryTime = millis();
+      Serial.println("\n[Wi-Fi Event] Lost IP address lease. Next retry in 10s.");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_STOP:
+      Serial.println("[Wi-Fi Event] Station interface stopped.");
+      break;
+
+    default:
+      break;
+  }
+}
+
+// -------------------------------------------------------------------------
+// 7. WI-FI CONNECTION INITIATION (Guarded against duplicate calls)
+// -------------------------------------------------------------------------
+void startWifiConnection() {
+  // Never initiate a new connection while an attempt is already in progress
+  if (currentWifiState == WIFI_STATE_CONNECTING) {
+    return;
+  }
+  // If already connected with valid IP, do nothing
+  if (currentWifiState == WIFI_STATE_CONNECTED && WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+
+  currentWifiState = WIFI_STATE_CONNECTING;
+  wifiConnectStartTime = millis();
+
+  Serial.println("\n[Wi-Fi] Initiating connection...");
+  Serial.printf("[Wi-Fi] Target SSID: %s\n", WIFI_SSID);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+// -------------------------------------------------------------------------
+// 8. HELPER: EXTRACT CURRENT_STOCK FROM JSON RESPONSE (Dependency-free)
 // -------------------------------------------------------------------------
 int extractStockCount(const String& payload) {
   int keyIndex = payload.indexOf("\"current_stock\":");
@@ -153,7 +288,7 @@ int extractStockCount(const String& payload) {
 }
 
 // -------------------------------------------------------------------------
-// 5. HELPER: QUEUE SENSOR EVENT
+// 9. HELPER: QUEUE SENSOR EVENT (Preserved across disconnections)
 // -------------------------------------------------------------------------
 bool enqueueEvent(const char* direction, const char* rawSequence, const char* notes) {
   if (queueCount >= QUEUE_SIZE) {
@@ -186,10 +321,10 @@ bool enqueueEvent(const char* direction, const char* rawSequence, const char* no
 }
 
 // -------------------------------------------------------------------------
-// 6. HELPER: SYNCHRONIZE AUTHORITATIVE STOCK FROM POSTGRESQL BACKEND
+// 10. HELPER: SYNCHRONIZE AUTHORITATIVE STOCK FROM POSTGRESQL BACKEND
 // -------------------------------------------------------------------------
 void syncAuthoritativeStockFromBackend() {
-  if (WiFi.status() != WL_CONNECTED) {
+  if (currentWifiState != WIFI_STATE_CONNECTED || WiFi.status() != WL_CONNECTED) {
     Serial.println("[SYNC SKIP] Wi-Fi offline. Using current local stock.");
     return;
   }
@@ -226,10 +361,10 @@ void syncAuthoritativeStockFromBackend() {
 }
 
 // -------------------------------------------------------------------------
-// 7. HELPER: TRANSMIT SENSOR EVENT TO BACKEND
+// 11. HELPER: TRANSMIT SENSOR EVENT TO BACKEND
 // -------------------------------------------------------------------------
 bool transmitEvent(QueuedEvent& ev) {
-  if (WiFi.status() != WL_CONNECTED) {
+  if (currentWifiState != WIFI_STATE_CONNECTED || WiFi.status() != WL_CONNECTED) {
     return false;
   }
 
@@ -282,10 +417,12 @@ bool transmitEvent(QueuedEvent& ev) {
 }
 
 // -------------------------------------------------------------------------
-// 8. HELPER: FLUSH QUEUED EVENTS IN FIFO ORDER
+// 12. HELPER: FLUSH QUEUED EVENTS IN FIFO ORDER
 // -------------------------------------------------------------------------
 void processEventQueue() {
-  if (queueCount == 0 || WiFi.status() != WL_CONNECTED) return;
+  if (queueCount == 0 || currentWifiState != WIFI_STATE_CONNECTED || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
 
   QueuedEvent& ev = eventQueue[queueHead];
   if (ev.pending) {
@@ -301,10 +438,12 @@ void processEventQueue() {
 }
 
 // -------------------------------------------------------------------------
-// 9. HELPER: SEND AUTHENTICATED HEARTBEAT
+// 13. HELPER: SEND AUTHENTICATED HEARTBEAT
 // -------------------------------------------------------------------------
 void sendHeartbeat() {
-  if (WiFi.status() != WL_CONNECTED) return;
+  if (currentWifiState != WIFI_STATE_CONNECTED || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
 
   char heartbeatUrl[180];
   snprintf(heartbeatUrl, sizeof(heartbeatUrl), "http://%s:%d/api/iot/inventory/heartbeat?device_id=%s",
@@ -346,7 +485,7 @@ void sendHeartbeat() {
 }
 
 // -------------------------------------------------------------------------
-// 10. SETUP ROUTINE
+// 14. SETUP ROUTINE
 // -------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
@@ -354,8 +493,8 @@ void setup() {
 
   Serial.println("\n========================================================");
   Serial.println("RetailSphere AI — Wi-Fi Stock Counter (ESP32 + Dual FC-51)");
-  Serial.printf("Increment Sensor Pin: GPIO %d (Entry: +1 Stock)\n", INCREMENT_SENSOR_PIN);
-  Serial.printf("Decrement Sensor Pin: GPIO %d (Exit:  -1 Stock)\n", DECREMENT_SENSOR_PIN);
+  Serial.printf("Increment Sensor Pin: GPIO %d (Sensor A Entry: +1 Stock)\n", INCREMENT_SENSOR_PIN);
+  Serial.printf("Decrement Sensor Pin: GPIO %d (Sensor B Exit : -1 Stock)\n", DECREMENT_SENSOR_PIN);
   Serial.printf("Device Identifier   : %s\n", DEVICE_ID);
   Serial.printf("Target Server       : http://%s:%d\n", SERVER_HOST, SERVER_PORT);
   Serial.println("========================================================");
@@ -367,23 +506,25 @@ void setup() {
   lastIncrementState = digitalRead(INCREMENT_SENSOR_PIN);
   lastDecrementState = digitalRead(DECREMENT_SENSOR_PIN);
 
-  // Connect to Wi-Fi
-  Serial.printf("[Wi-Fi] Connecting to SSID: %s\n", WIFI_SSID);
+  // Register Wi-Fi Event Handler BEFORE configuring STA mode
+  WiFi.onEvent(onWiFiEvent);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.setAutoReconnect(false); // State machine authoritatively manages connection cycles
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(400);
+  // Initiate Wi-Fi connection through state machine
+  startWifiConnection();
+
+  // Non-blocking boot grace period (up to 6 seconds) to allow initial association
+  Serial.print("[Wi-Fi] Connecting");
+  unsigned long bootWaitStart = millis();
+  while (currentWifiState == WIFI_STATE_CONNECTING && (millis() - bootWaitStart < 6000)) {
+    delay(300);
     Serial.print(".");
-    attempts++;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (currentWifiState == WIFI_STATE_CONNECTED) {
     wasConnected = true;
-    Serial.println("\n[Wi-Fi] Connected Successfully!");
-    Serial.printf("[Wi-Fi] Assigned ESP32 IP: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("[Wi-Fi] RSSI Signal Strength: %d dBm\n", WiFi.RSSI());
+    Serial.println("\n[Wi-Fi] Connected during boot!");
 
     // Synchronize initial baseline stock from PostgreSQL database
     syncAuthoritativeStockFromBackend();
@@ -392,21 +533,31 @@ void setup() {
     // Immediately transmit initial heartbeat to mark device ONLINE in Admin Dashboard
     sendHeartbeat();
   } else {
-    Serial.println("\n[Wi-Fi WARNING] Connection timed out. Operating in offline count mode.");
+    Serial.println("\n[Wi-Fi NOTICE] Continuing boot in offline count mode.");
+    Serial.println("[Wi-Fi NOTICE] Sensors active immediately. Background retry enabled.");
     wasConnected = false;
   }
 }
 
 // -------------------------------------------------------------------------
-// 11. MAIN SENSING & TRANSMISSION LOOP
+// 15. MAIN SENSING & TRANSMISSION LOOP
 // -------------------------------------------------------------------------
 void loop() {
   unsigned long now = millis();
-  bool isConnected = (WiFi.status() == WL_CONNECTED);
+  bool isConnected = (currentWifiState == WIFI_STATE_CONNECTED && WiFi.status() == WL_CONNECTED);
 
-  // 1. Wi-Fi reconnection handling
+  // 1. Connection Timeout Guardian:
+  // If connection is in progress but exceeded 15 seconds, safely terminate and back off
+  if (currentWifiState == WIFI_STATE_CONNECTING && (now - wifiConnectStartTime >= WIFI_CONNECT_TIMEOUT_MS)) {
+    Serial.println("\n[Wi-Fi] Connection attempt timed out (15s). Safely resetting failed attempt.");
+    WiFi.disconnect(false);
+    currentWifiState = WIFI_STATE_DISCONNECTED;
+    lastWifiRetryTime = now;
+  }
+
+  // 2. Wi-Fi reconnection handling
   if (isConnected && !wasConnected) {
-    Serial.println("\n[Wi-Fi] Connection restored!");
+    Serial.println("\n[Wi-Fi] Connection active!");
     Serial.printf("[Wi-Fi] Assigned ESP32 IP: %s\n", WiFi.localIP().toString().c_str());
     wasConnected = true;
 
@@ -422,29 +573,31 @@ void loop() {
     wasConnected = false;
   }
 
-  // 2. Periodic background Wi-Fi reconnect attempt if offline
-  if (!isConnected && (now - lastWifiCheckTime >= 8000)) {
-    lastWifiCheckTime = now;
-    Serial.println("[Wi-Fi] Attempting background reconnect...");
-    WiFi.reconnect();
+  // 3. Periodic background Wi-Fi reconnect attempt:
+  // ONLY attempt reconnect if genuinely DISCONNECTED and the 10-second retry cooldown has elapsed.
+  // NEVER call WiFi.begin() or WiFi.reconnect() while in WIFI_STATE_CONNECTING!
+  if (currentWifiState == WIFI_STATE_DISCONNECTED && (now - lastWifiRetryTime >= WIFI_RETRY_INTERVAL_MS)) {
+    lastWifiRetryTime = now;
+    Serial.println("[Wi-Fi] 10s cooldown elapsed. Attempting background reconnect...");
+    startWifiConnection();
   }
 
-  // 3. Periodic heartbeat ping (every 25 seconds when connected)
+  // 4. Periodic heartbeat ping (every 25 seconds when connected)
   if (isConnected && (now - lastHeartbeatTime >= HEARTBEAT_INTERVAL_MS)) {
     sendHeartbeat();
   }
 
-  // 4. Process queued events in FIFO order
+  // 5. Process queued events in FIFO order
   if (isConnected && queueCount > 0) {
     processEventQueue();
   }
 
-  // 5. Read optical IR sensors (Active LOW)
+  // 6. Read optical IR sensors (Active LOW) — 100% responsive even while offline
   int currentIncState = digitalRead(INCREMENT_SENSOR_PIN);
   int currentDecState = digitalRead(DECREMENT_SENSOR_PIN);
 
   // -----------------------------------------------------------------------
-  // INCREMENT SENSOR (GPIO 27) — Edge Detection: HIGH -> LOW (Item Entry)
+  // INCREMENT SENSOR (GPIO 27, Sensor A) — Edge Detection: HIGH -> LOW (Item Entry)
   // -----------------------------------------------------------------------
   if (currentIncState == OBSTACLE_DETECTED &&
       lastIncrementState == SENSOR_CLEAR &&
@@ -465,7 +618,7 @@ void loop() {
   }
 
   // -----------------------------------------------------------------------
-  // DECREMENT SENSOR (GPIO 26) — Edge Detection: HIGH -> LOW (Item Exit + Zero-Stock Protection)
+  // DECREMENT SENSOR (GPIO 26, Sensor B) — Edge Detection: HIGH -> LOW (Item Exit + Zero-Stock Protection)
   // -----------------------------------------------------------------------
   if (currentDecState == OBSTACLE_DETECTED &&
       lastDecrementState == SENSOR_CLEAR &&
